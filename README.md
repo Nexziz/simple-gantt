@@ -150,3 +150,7 @@ Code layout:
 - `src/core/` holds pure logic: dates, the quick-add parser, layout, SVG rendering, and YAML (de)serialisation.
 - `src/ui/board.ts` is the interactive board.
 - `src/view.ts` and `src/main.ts` connect it all to Obsidian.
+
+## License
+
+[MIT](LICENSE)
