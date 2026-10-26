@@ -131,6 +131,8 @@ export interface Project {
 	journal?: JournalEntry[];
 	/** Row spacing; comfortable when unset. */
 	density?: "compact";
+	/** Optional features switched off for this project (see core/features). */
+	off?: import("./features").Feature[];
 }
 
 export function newId(): string {

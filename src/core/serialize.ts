@@ -1,5 +1,6 @@
 import { fromDay, isIsoDate, toDay } from "./dates";
 import { pruneLinks } from "./links";
+import { ALL_FEATURES } from "./features";
 import {
 	CHECKIN_LABELS, COLOR_ORDER, CheckIn, ColorName, GanttItem, ITEM_TYPES, ItemType, JournalEntry, Mood, Phase, Project,
 	isCheckable, isRangeType, newId, slugify,
@@ -179,6 +180,10 @@ export function normalizeProject(raw: unknown, fallbackTitle = "Untitled project
 	}
 	if (journal.length) project.journal = journal;
 	if (r.density === "compact") project.density = "compact";
+	if (Array.isArray(r.off)) {
+		const off = ALL_FEATURES.filter((f) => (r.off as unknown[]).includes(f));
+		if (off.length) project.off = off;
+	}
 	pruneLinks(project);
 	return project;
 }
@@ -224,6 +229,7 @@ export function toPlain(project: Project): Record<string, unknown> {
 	});
 	if (project.checkin) out.checkin = project.checkin;
 	if (project.density) out.density = project.density;
+	if (project.off?.length) out.off = [...project.off];
 	if (project.journal?.length)
 		out.journal = [...project.journal]
 			.sort((a, b) => a.date.localeCompare(b.date))

@@ -79,6 +79,31 @@ const scenes = {
 		for (let i = 1; i <= 10; i++) await page.mouse.move(dot.x + (target.x + 30 - dot.x) * (i / 10), dot.y + (target.y + 10 - dot.y) * (i / 10));
 		await page.waitForTimeout(150);
 	},
+	async "18-sparse-dark"(page) {
+		await page.click(".sg-template");
+		await page.waitForTimeout(200);
+		for (const line of ["Research automotive software landscape 5 Nov – 30 Nov #lit", "Reverse engineer an automotive ECU 1 Dec – 15 Jan #data", "!Dissertation proposal 9 Nov"]) {
+			await page.fill(".sg-quick-input", line);
+			await page.press(".sg-quick-input", "Enter");
+		}
+		await page.click(".sg-seg button:nth-child(2)");
+		await page.waitForTimeout(500);
+		const lane = await page.locator('.sg-lane-hit[data-lane="analysis"]').boundingBox();
+		await page.mouse.move(lane.x + 500, lane.y + lane.height / 2);
+		await page.waitForTimeout(300);
+	},
+	async "19-features"(page) {
+		await page.click('[aria-label="Project settings"]');
+		await page.waitForTimeout(300);
+		await page.locator(".sg-panel .sg-form").evaluate((el) => el.scrollTo(0, el.scrollHeight));
+		await page.click('.sg-switch[aria-label="Locations"]');
+		await page.waitForTimeout(400);
+		await page.locator(".sg-panel .sg-form").evaluate((el) => {
+			const t = [...el.querySelectorAll(".sg-section-title")].find((x) => x.textContent === "Features");
+			el.scrollTo(0, t.offsetTop - 20);
+		});
+		await page.waitForTimeout(300);
+	},
 	async "14-ripple"(page) {
 		const box = await page.locator('.sg-item[data-id="b3"] rect.sg-mark').boundingBox();
 		const y = box.y + box.height / 2;
@@ -90,7 +115,7 @@ const scenes = {
 	},
 };
 const viewports = { "09-mobile": { width: 390, height: 780 } };
-const query = { "05-dark-quarter": "theme=dark", "07-empty": "empty=1" };
+const query = { "05-dark-quarter": "theme=dark", "07-empty": "empty=1", "18-sparse-dark": "theme=dark&empty=1" };
 
 const browser = await chromium.launch();
 for (const [name, act] of Object.entries(scenes)) {

@@ -1,6 +1,7 @@
 import { toDay } from "./dates";
 import { Slot, dueCheckIn } from "./journal";
 import { linkConflicts } from "./links";
+import { isOn } from "./features";
 import { GanttItem, Project, isCheckable, isDone } from "./types";
 
 /**
@@ -19,19 +20,19 @@ export type Nudge =
 
 export function computeNudges(project: Project, today: number): Nudge[] {
 	const out: Nudge[] = [];
-	const live = project.items.filter((i) => !i.dropped);
+	const live = project.items.filter((i) => !i.dropped && (i.type !== "event" || isOn(project, "events")));
 
 	for (const item of live) {
 		const pb = item.planB;
-		if (pb && !pb.status && !isDone(item) && toDay(pb.by) <= today)
+		if (isOn(project, "planb") && pb && !pb.status && !isDone(item) && toDay(pb.by) <= today)
 			out.push({ kind: "decision", key: `decision:${item.id}:${pb.by}`, item });
 	}
 
 	// A linked item that can't move (a deadline, or something finished) now comes before its predecessor ends.
-	for (const c of linkConflicts(project))
+	for (const c of isOn(project, "links") ? linkConflicts(project) : [])
 		out.push({ kind: "conflict", key: `conflict:${c.pred.id}:${c.succ.id}:${c.pred.end ?? c.pred.start}`, item: c.succ, pred: c.pred });
 
-	const slot = dueCheckIn(project, today);
+	const slot = isOn(project, "journal") ? dueCheckIn(project, today) : null;
 	if (slot) out.push({ kind: "checkin", key: `checkin:${slot.day}`, slot });
 
 	const reached = live

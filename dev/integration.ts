@@ -1,6 +1,7 @@
 /* End-to-end test of the real plugin code against the in-memory Obsidian mock. Runs in Chromium. */
 import { App, notices } from "obsidian";
 import SimpleGanttPlugin from "../src/main";
+import { isOn } from "../src/core/features";
 
 const log: string[] = [];
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -208,6 +209,25 @@ function check(cond: unknown, msg: string) {
 		([...document.querySelectorAll(".sg-seg-wide button")].find((b) => b.textContent === "Compact") as HTMLButtonElement).click();
 		await sleep(600);
 		check((await read()).includes("density: compact"), "spacing preference saved");
+
+		// ── Feature switches ──
+		const sw = (label: string) => document.querySelector(`.sg-switch[aria-label="${label}"]`) as HTMLInputElement;
+		sw("Locations").checked = false;
+		sw("Locations").dispatchEvent(new Event("change"));
+		check(!document.querySelector('.sg-labels-svg [data-lane="locations"]') && getComputedStyle(document.querySelector(".sg-chips .sg-chip-location")!).display === "none", "switching Locations off hides its row and button");
+		sw("Journal").checked = false;
+		sw("Journal").dispatchEvent(new Event("change"));
+		check(getComputedStyle(document.querySelector(".sg-journal-btn")!).display === "none" && !document.querySelector('.sg-labels-svg [data-lane="journal"]'), "switching Journal off hides the journal");
+		input.value = "@Lisbon 1 Mar – 5 Mar";
+		input.dispatchEvent(new Event("input"));
+		check(!document.querySelector(".sg-quick-preview .sg-chip-location"), "'@' no longer makes a location when locations are off");
+		input.value = "";
+		([...document.querySelectorAll(".sg-preset")].find((b) => b.textContent?.startsWith("Essentials")) as HTMLButtonElement).click();
+		check(!isOn(proj(), "planb") && isOn(proj(), "links"), "Essentials preset switches off the extras");
+		([...document.querySelectorAll(".sg-preset")].find((b) => b.textContent?.startsWith("Everything")) as HTMLButtonElement).click();
+		check(proj().off === undefined && document.querySelector('.sg-labels-svg [data-lane="locations"]'), "Everything brings it all back, data intact");
+		await sleep(600);
+		check(!(await read()).includes("off:"), "feature choices saved in the note");
 		log.push(`notices: ${JSON.stringify(notices)}`);
 		(window as any).__note = await app.vault.read(file);
 	} catch (e) {

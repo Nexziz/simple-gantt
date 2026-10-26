@@ -5,7 +5,7 @@ export type TemplateId = "dissertation" | "blank";
 
 export const TEMPLATES: { id: TemplateId; name: string; description: string }[] = [
 	{ id: "dissertation", name: "Dissertation", description: "12 months with research phases ready to fill in" },
-	{ id: "blank", name: "Blank project", description: "An empty timeline with a single phase" },
+	{ id: "blank", name: "Blank project", description: "A simple timeline with just the essentials. Add more tools any time" },
 ];
 
 /** A new project starting at the beginning of the month of `today`. */
@@ -18,6 +18,7 @@ export function createFromTemplate(id: TemplateId, title: string, today: string)
 			? ["Literature review", "Methodology & ethics", "Data collection", "Analysis", "Writing", "Submission"]
 			: ["Work"];
 	names.forEach((name, i) => base.phases.push({ id: name.toLowerCase().replace(/[^a-z]+/g, "-").replace(/-$/, ""), name, color: COLOR_ORDER[i] }));
+	if (id === "blank") base.off = ["locations", "events", "journal", "planb", "buffers"];
 	if (id === "dissertation") {
 		base.subtitle = "Dissertation plan";
 		base.items.push({ id: "submit", type: "deadline", title: "Final submission", start: fromDay(end - 3) });

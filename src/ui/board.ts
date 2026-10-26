@@ -1,6 +1,7 @@
 import { MONTHS_LONG, formatDay, formatDuration, formatRange, fromDay, toDay, ymd } from "../core/dates";
 import { PROMPTS, REVIEW_PROMPTS, prompt, slotStates } from "../core/journal";
 import { Nudge, computeNudges, nextDeadline, overallProgress, rippleShift } from "../core/nudges";
+import { FEATURES, Feature, PRESETS, isOn, setFeature } from "../core/features";
 import { addLink, enforceLinks, predecessorsOf, pruneLinks, removeLink, successorsOf, wouldCycle } from "../core/links";
 import { Layout, Placed, computeLayout } from "../core/layout";
 import { ParseResult, parseQuickAdd } from "../core/parse";
@@ -129,6 +130,7 @@ export class GanttBoard {
 	private undoBtn!: HTMLButtonElement;
 	private stats!: El;
 	private foldBtn!: El;
+	private journalBtn!: El;
 	private nudgeBar!: El;
 	private quick!: El;
 	private quickInput!: HTMLInputElement;
@@ -216,7 +218,7 @@ export class GanttBoard {
 		todayBtn.addEventListener("click", () => this.scrollToToday());
 		const exportBtn = h("button", { cls: "sg-btn", kids: [icon("download"), span(`Export`)] }, this.toolbar);
 		exportBtn.addEventListener("click", () => this.openExportMenu(exportBtn));
-		const journalBtn = h("button", { cls: "sg-btn sg-journal-btn", kids: [icon("book"), span(`Journal`)], attrs: { "aria-label": "Journal (J)" } }, this.toolbar);
+		const journalBtn = this.journalBtn = h("button", { cls: "sg-btn sg-journal-btn", kids: [icon("book"), span(`Journal`)], attrs: { "aria-label": "Journal (J)" } }, this.toolbar);
 		journalBtn.addEventListener("click", () => (this.panelMode === "journal" ? this.closePanel() : this.openJournal()));
 		const settingsBtn = h("button", { cls: "sg-btn sg-icon-btn", kids: [icon("settings")], attrs: { "aria-label": "Project settings" } }, this.toolbar);
 		settingsBtn.addEventListener("click", () => this.openProjectPanel());
@@ -322,6 +324,8 @@ export class GanttBoard {
 		const p = this.project;
 		this.titleBtn.replaceChildren(span(p?.title ?? "Simple Gantt", "sg-title-text"), icon("chevronDown", 14));
 		for (const [z, b] of this.zoomBtns) b.classList.toggle("is-active", z === this.zoom);
+		this.journalBtn.classList.toggle("sg-hidden", !this.on("journal"));
+		this.syncQuick();
 		const allFolded = !!p?.phases.length && p.phases.every((ph) => ph.collapsed);
 		this.foldBtn.replaceChildren(icon(allFolded ? "unfold" : "fold"));
 		this.foldBtn.setAttribute("aria-label", allFolded ? "Unfold all phases (F)" : "Fold all phases (F)");
@@ -442,7 +446,7 @@ export class GanttBoard {
 	private commit() {
 		if (!this.project) return;
 		pruneLinks(this.project);
-		const pushed = enforceLinks(this.project);
+		const pushed = this.on("links") ? enforceLinks(this.project) : [];
 		this.host.save(this.project);
 		this.render();
 		if (pushed.length)
@@ -471,6 +475,16 @@ export class GanttBoard {
 			this.closePanel();
 		} else if (this.panelMode) this.refreshPanel();
 		this.commit();
+	}
+
+	/** Is an optional feature switched on for the current project? */
+	private on(f: Feature): boolean {
+		return isOn(this.project, f);
+	}
+
+	/** Item types offered in the UI (switched-off ones are hidden). */
+	private typeOn(t: ItemType): boolean {
+		return (t !== "location" || this.on("locations")) && (t !== "event" || this.on("events"));
 	}
 
 	private findItem(id: string): GanttItem | undefined {
@@ -511,7 +525,13 @@ export class GanttBoard {
 
 	private parseQuick(): ParseResult | null {
 		if (!this.project) return null;
-		return parseQuickAdd(this.quickInput.value, { project: this.project, defaultType: this.quickType, today: this.host.today() });
+		const r = parseQuickAdd(this.quickInput.value, { project: this.project, defaultType: this.quickType, today: this.host.today() });
+		if (r && !this.typeOn(r.type)) {
+			r.type = "task";
+			if (!r.end) r.end = r.start;
+		}
+		if (r?.buffer && !this.on("buffers")) delete r.buffer;
+		return r;
 	}
 
 	private defaultPhase(): string | undefined {
@@ -522,7 +542,9 @@ export class GanttBoard {
 	}
 
 	private syncQuick() {
+		if (!this.typeOn(this.quickType)) this.quickType = "task";
 		for (const [t, c] of this.typeChips) {
+			c.classList.toggle("sg-hidden", !this.typeOn(t));
 			c.classList.toggle("is-active", t === this.quickType);
 			c.setAttribute("aria-checked", String(t === this.quickType));
 		}
@@ -557,7 +579,7 @@ export class GanttBoard {
 	/** Text after a leading ">" (a quick journal line), or null. */
 	private quickJournalText(): string | null {
 		const v = this.quickInput.value.trim();
-		return v.startsWith(">") ? v.slice(1).trim() : null;
+		return v.startsWith(">") && this.on("journal") ? v.slice(1).trim() : null;
 	}
 
 	private commitQuick(openEditor: boolean) {
@@ -703,7 +725,7 @@ export class GanttBoard {
 			else en = Math.max(s0, e0 + delta);
 			item.start = fromDay(s);
 			if (isRangeType(item.type)) item.end = fromDay(en);
-			const pushed = enforceLinks(this.project).filter((id) => id !== item.id).length;
+			const pushed = this.on("links") ? enforceLinks(this.project).filter((id) => id !== item.id).length : 0;
 			this.render();
 			this.paintDragGuides(item);
 			const label = isRangeType(item.type) ? `${formatRange(s, en)} · ${formatDuration(en - s + 1)}` : formatDay(s);
@@ -760,7 +782,9 @@ export class GanttBoard {
 			if (lane.kind === "journal") return this.openJournal({ date: fromDay(day) });
 			this.snapshot();
 			const item: GanttItem =
-				lane.kind === "keydates" ? { id: newId(), type: "event", title: "New key date", start: fromDay(day) } :
+				lane.kind === "keydates" ? (this.on("events")
+					? { id: newId(), type: "event", title: "New key date", start: fromDay(day) }
+					: { id: newId(), type: "deadline", title: "New deadline", start: fromDay(day) }) :
 				lane.kind === "locations" ? { id: newId(), type: "location", title: "New location", start: fromDay(day), end: fromDay(day + 6) } :
 				{ id: newId(), type: "milestone", title: "New milestone", start: fromDay(day), phase: lane.phase?.id };
 			this.addItem(item, true);
@@ -1079,7 +1103,7 @@ export class GanttBoard {
 			for (const o of options) h("option", { text: `${o.title} · ${formatDay(toDay(o.end ?? o.start), false)}`, attrs: { value: o.id } }, sel);
 			sel.addEventListener("change", () => sel.value && this.linkItems(sel.value, item.id));
 		}
-		if ((item.type === "task" && !item.buffer) || item.type === "milestone") {
+		if (this.on("buffers") && ((item.type === "task" && !item.buffer) || item.type === "milestone")) {
 			const add = h("button", { cls: "sg-link-btn", kids: [icon("buffer", 13), "Add 2 weeks of buffer after this"] }, sec);
 			add.addEventListener("click", () => this.addBufferAfter(item));
 		}
@@ -1219,7 +1243,7 @@ export class GanttBoard {
 		// Type
 		const typeRow = this.fieldWrap(form, "Type");
 		const seg = h("div", { cls: "sg-type-seg" }, typeRow);
-		for (const t of ITEM_TYPES) {
+		for (const t of ITEM_TYPES.filter((t) => this.typeOn(t) || t === item.type)) {
 			const b = h("button", { cls: `sg-chip sg-chip-${t}${t === item.type ? " is-active" : ""}`, kids: [icon(t, 13), span(`${ITEM_TYPE_LABELS[t]}`)] }, seg);
 			b.addEventListener("click", () => {
 				if (t === item.type) return;
@@ -1313,7 +1337,7 @@ export class GanttBoard {
 		}
 
 		// Progress
-		if (item.type === "task") {
+		if (item.type === "task" && this.on("progress")) {
 			const wrap = this.fieldWrap(form, "Progress");
 			const row = h("div", { cls: "sg-progress-row" }, wrap);
 			const range = h("input", { cls: "sg-range", attrs: { type: "range", min: "0", max: "100", step: "5" } }, row);
@@ -1325,7 +1349,7 @@ export class GanttBoard {
 			});
 		}
 
-		if (item.type === "task") {
+		if (item.type === "task" && (this.on("buffers") || item.buffer)) {
 			const row = h("label", { cls: "sg-check sg-buffer-toggle" }, form);
 			const cb = h("input", { attrs: { type: "checkbox" } }, row);
 			cb.checked = !!item.buffer;
@@ -1335,8 +1359,8 @@ export class GanttBoard {
 				else delete item.buffer;
 			}, true));
 		}
-		if (item.type !== "location" && item.type !== "event" && !item.dropped) this.buildLinksSection(form, item);
-		if (isCheckable(item) && !item.dropped && !isDone(item)) this.buildPlanBSection(form, item, focus === "planb");
+		if (item.type !== "location" && item.type !== "event" && !item.dropped && this.on("links")) this.buildLinksSection(form, item);
+		if (isCheckable(item) && !item.dropped && !isDone(item) && this.on("planb")) this.buildPlanBSection(form, item, focus === "planb");
 		if (!isDone(item) && !item.dropped) this.buildSlipSection(form, item);
 
 		// Note link
@@ -1465,6 +1489,8 @@ export class GanttBoard {
 			last?.select();
 		});
 
+		this.buildFeaturesSection(form);
+
 		h("div", { cls: "sg-section-title", text: "Quick add tips" }, form);
 		h("div", {
 			cls: "sg-tips",
@@ -1525,7 +1551,7 @@ export class GanttBoard {
 		const phase = this.project?.phases.find((ph) => ph.id === item.phase);
 		const phaseDone = !!phase && this.project!.items.filter((i) => i.phase === phase.id && !i.dropped && isCheckable(i)).every(isDone);
 		const colors = phase ? [this.theme.palette[phase.color], ...Object.values(this.theme.palette)] : Object.values(this.theme.palette);
-		confetti(this.root, x, y, colors, item.type !== "task" || phaseDone);
+		if (this.on("celebrate")) confetti(this.root, x, y, colors, item.type !== "task" || phaseDone);
 		if (phase && phaseDone) this.host.notify(`🎉 Every item in “${phase.name}” is done!`);
 	}
 
@@ -1712,7 +1738,7 @@ export class GanttBoard {
 	// ─── Journal ───────────────────────────────────────────────────────────
 
 	openJournal(opts: { date?: string; entryId?: string } = {}) {
-		if (!this.project) return;
+		if (!this.project || !this.on("journal")) return;
 		this.selectedId = null;
 		this.panelMode = "journal";
 		const entry = opts.entryId ? this.project.journal?.find((e) => e.id === opts.entryId) : undefined;
@@ -1919,7 +1945,7 @@ export class GanttBoard {
 		if (!p) return;
 		const pct = overallProgress(p);
 		const r = 9, c = 2 * Math.PI * r;
-		const ring = h("div", { cls: "sg-ring", attrs: { title: `${pct}% of the plan done` } }, this.stats);
+		const ring = h("div", { cls: `sg-ring${this.on("progress") ? "" : " sg-hidden"}`, attrs: { title: `${pct}% of the plan done` } }, this.stats);
 		const svg = svgEl("svg", { width: 24, height: 24, viewBox: "0 0 24 24" });
 		svgEl("circle", { cx: 12, cy: 12, r, fill: "none", stroke: "var(--background-modifier-border)", "stroke-width": 3 }, svg);
 		svgEl("circle", {
@@ -1944,7 +1970,7 @@ export class GanttBoard {
 	private renderNudges() {
 		const bar = this.nudgeBar;
 		const p = this.project;
-		const list = p ? computeNudges(p, toDay(this.host.today())).filter((n) => !this.dismissedNudges.has(n.key)) : [];
+		const list = p && this.on("nudges") ? computeNudges(p, toDay(this.host.today())).filter((n) => !this.dismissedNudges.has(n.key)) : [];
 		const key = list.map((n) => n.key).join("|") + `#${this.nudgeIndex}`;
 		if (bar.dataset.key === key) return;
 		bar.dataset.key = key;
@@ -2039,6 +2065,31 @@ export class GanttBoard {
 				it.planB.start = o.planB.start;
 				it.planB.end = o.planB.end;
 			}
+		}
+	}
+
+	/** Switch optional tools on or off for this timeline, one by one or with a preset. */
+	private buildFeaturesSection(form: El) {
+		const p = this.project!;
+		h("div", { cls: "sg-section-title", text: "Features" }, form);
+		h("div", { cls: "sg-hint sg-hint-top", text: "Show only what you use. Switching something off hides it; nothing is deleted." }, form);
+		const presets = h("div", { cls: "sg-presets" }, form);
+		for (const pr of PRESETS) {
+			const active = (p.off ?? []).length === pr.off.length && pr.off.every((f) => p.off?.includes(f));
+			const b = h("button", { cls: `sg-preset${active ? " is-active" : ""}`, kids: [h("strong", { text: pr.label }), h("span", { text: pr.desc })] }, presets);
+			b.addEventListener("click", () => this.mutate(() => {
+				if (pr.off.length) p.off = [...pr.off];
+				else delete p.off;
+			}, true));
+		}
+		const list = h("div", { cls: "sg-features" }, form);
+		for (const f of FEATURES) {
+			const row = h("label", { cls: "sg-feature" }, list);
+			h("span", { cls: "sg-feature-icon", kids: [icon(f.icon, 14)] }, row);
+			h("span", { cls: "sg-feature-text", kids: [h("strong", { text: f.label }), h("small", { text: f.desc })] }, row);
+			const sw = h("input", { cls: "sg-switch", attrs: { type: "checkbox", role: "switch", "aria-label": f.label } }, row);
+			sw.checked = isOn(p, f.key);
+			sw.addEventListener("change", () => this.mutate(() => setFeature(p, f.key, sw.checked), true));
 		}
 	}
 

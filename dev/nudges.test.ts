@@ -4,6 +4,9 @@ import { checkInSlots, dueCheckIn, slotStates } from "../src/core/journal";
 import { computeNudges, nextDeadline, overallProgress, rippleShift } from "../src/core/nudges";
 import { normalizeProject, toPlain } from "../src/core/serialize";
 import { addLink, enforceLinks, linkConflicts } from "../src/core/links";
+import { isOn, setFeature } from "../src/core/features";
+import { computeLayout } from "../src/core/layout";
+import { createFromTemplate } from "../src/core/templates";
 import { cloneProject } from "../src/core/types";
 import { SAMPLE } from "./sample";
 
@@ -139,5 +142,30 @@ t("links, buffers and collapsed phases survive a round trip; dangling links are 
 	assert.equal(back.phases[0].collapsed, true);
 });
 
-console.log(failed ? `\n${failed} failed` : `\nall nudge/journal/link tests passed`);
+t("features: switching off hides lanes and nudges but keeps the data", () => {
+	const p = cloneProject(SAMPLE);
+	const measure = (s: string) => s.length * 6;
+	const lanes = () => computeLayout(p, { pxPerDay: 2, showEmptyLanes: true, showJournal: true, today, measure }).lanes.map((l) => l.kind);
+	assert.ok(lanes().includes("locations") && lanes().includes("journal"));
+	setFeature(p, "locations", false);
+	setFeature(p, "journal", false);
+	assert.ok(!lanes().includes("locations") && !lanes().includes("journal"));
+	assert.ok(p.items.some((i) => i.type === "location") && p.journal?.length, "data kept");
+	assert.ok(!computeNudges(p, today).some((n) => n.kind === "checkin"));
+	setFeature(p, "nudges", false);
+	const back = normalizeProject(JSON.parse(JSON.stringify(toPlain(p))));
+	assert.deepEqual(back.off, ["nudges", "locations", "journal"]);
+	setFeature(back, "locations", true);
+	setFeature(back, "journal", true);
+	setFeature(back, "nudges", true);
+	assert.equal(back.off, undefined);
+});
+
+t("features: the blank template starts with the essentials", () => {
+	const blank = createFromTemplate("blank", "x", "2026-10-26");
+	assert.ok(!isOn(blank, "locations") && !isOn(blank, "journal") && isOn(blank, "links") && isOn(blank, "progress"));
+	assert.equal(createFromTemplate("dissertation", "x", "2026-10-26").off, undefined);
+});
+
+console.log(failed ? `\n${failed} failed` : `\nall nudge/journal/link/feature tests passed`);
 if (failed) process.exit(1);

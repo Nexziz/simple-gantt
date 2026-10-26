@@ -1,5 +1,6 @@
 import { formatMonthSpan, monthEnd, monthStart, toDay } from "./dates";
 import { SlotState, slotStates } from "./journal";
+import { Feature, isOn } from "./features";
 import { ColorName, GanttItem, Mood, Phase, Project, isDone } from "./types";
 
 /** Geometry, in CSS pixels. Comfortable is the default; Compact fits more on screen. */
@@ -110,6 +111,8 @@ export interface Placed {
 export interface Layout {
 	/** The geometry this layout was computed with. */
 	g: Geometry;
+	/** Whether an optional feature is switched on for this project. */
+	on: (f: Feature) => boolean;
 	viewStart: number;
 	viewEnd: number;
 	pxPerDay: number;
@@ -183,6 +186,7 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 
 	const phaseIds = new Set(project.phases.map((p) => p.id));
 	const today = opts.today ?? toDay(new Date().toISOString().slice(0, 10));
+	const on = (f: Feature) => isOn(project, f);
 	const asMarks = (items: GanttItem[]): Mark[] => items.map((item) => ({ kind: "item", item }));
 
 	// Plan B: a pending contingency adds a decision point and, when it has dates, a ghost bar.
@@ -190,7 +194,7 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 	const decisions: Mark[] = [];
 	for (const it of project.items) {
 		const pb = it.planB;
-		if (!pb || pb.status || isDone(it) || it.dropped) continue;
+		if (!on("planb") || !pb || pb.status || isDone(it) || it.dropped) continue;
 		decisions.push({
 			kind: "decision",
 			parentId: it.id,
@@ -209,12 +213,12 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 	}
 
 	const groups: { kind: LaneKind; key: string; phase?: Phase; marks: Mark[]; items: GanttItem[]; collapsed?: boolean }[] = [];
-	const locations = project.items.filter((i) => i.type === "location");
-	const keyDates = project.items.filter((i) => i.type === "event" || i.type === "deadline");
-	if (locations.length || opts.showEmptyLanes) groups.push({ kind: "locations", key: "locations", items: locations, marks: asMarks(locations) });
+	const locations = on("locations") ? project.items.filter((i) => i.type === "location") : [];
+	const keyDates = project.items.filter((i) => (i.type === "event" && on("events")) || i.type === "deadline");
+	if (on("locations") && (locations.length || opts.showEmptyLanes)) groups.push({ kind: "locations", key: "locations", items: locations, marks: asMarks(locations) });
 	if (keyDates.length || decisions.length || opts.showEmptyLanes)
 		groups.push({ kind: "keydates", key: "keydates", items: keyDates, marks: [...asMarks(keyDates), ...decisions] });
-	if (opts.showJournal && (project.checkin || project.journal?.length)) {
+	if (opts.showJournal && on("journal") && (project.checkin || project.journal?.length)) {
 		const marks: Mark[] = [];
 		for (const slot of slotStates(project, today)) {
 			if (slot.state === "done") continue;
@@ -228,7 +232,7 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 	for (const phase of project.phases) {
 		const items = project.items.filter((i) => inPhase(i) && i.phase === phase.id);
 		if (phase.collapsed) {
-			groups.push({ kind: "phase", key: phase.id, phase, items, collapsed: true, marks: summaryMarks(phase, items) });
+			groups.push({ kind: "phase", key: phase.id, phase, items, collapsed: true, marks: summaryMarks(phase, items, on("progress")) });
 			continue;
 		}
 		groups.push({
@@ -349,11 +353,11 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 		y += height;
 	}
 
-	return { g, viewStart, viewEnd, pxPerDay: ppd, width, headerH, bodyH: y, showWeeks, lanes, placed, xOf, dayAt };
+	return { g, on, viewStart, viewEnd, pxPerDay: ppd, width, headerH, bodyH: y, showWeeks, lanes, placed, xOf, dayAt };
 }
 
 /** A collapsed phase: one bar over its whole span (with overall progress) plus its milestones. */
-function summaryMarks(phase: Phase, items: GanttItem[]): Mark[] {
+function summaryMarks(phase: Phase, items: GanttItem[], showProgress: boolean): Mark[] {
 	const live = items.filter((i) => !i.dropped);
 	if (!live.length) return [];
 	let s = Infinity, e = -Infinity, total = 0, done = 0;
@@ -369,10 +373,10 @@ function summaryMarks(phase: Phase, items: GanttItem[]): Mark[] {
 	const tasks = live.filter((i) => i.type === "task").length;
 	const summary: Mark = {
 		kind: "summary",
-		progress,
+		progress: showProgress ? progress : 0,
 		item: {
 			id: `phase~${phase.id}`, type: "task", phase: phase.id, start: fromDayIso(s), end: fromDayIso(e),
-			title: `${tasks} task${tasks === 1 ? "" : "s"} · ${progress}% done`,
+			title: `${tasks} task${tasks === 1 ? "" : "s"}${showProgress ? ` · ${progress}% done` : ""}`,
 		},
 	};
 	return [summary, ...live.filter((i) => i.type === "milestone").map((item): Mark => ({ kind: "item", item }))];
@@ -394,7 +398,7 @@ function laneSubtitle(kind: LaneKind, items: GanttItem[], project: Project): str
 		if (!items.length) return "Deadlines & events";
 		return [d && `${d} deadline${d === 1 ? "" : "s"}`, e && `${e} event${e === 1 ? "" : "s"}`].filter(Boolean).join(" · ");
 	}
-	if (!items.length) return "Drag to add a task";
+	if (!items.length) return "No tasks yet";
 	let s = Infinity, e = -Infinity;
 	for (const it of items) {
 		const [a, b] = itemDays(it);

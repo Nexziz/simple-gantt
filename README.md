@@ -23,6 +23,7 @@ A simple, beautiful Gantt chart for Obsidian. Plan a project (or a whole dissert
 - **Buffer time.** Plan slack for the delays that always come, with a hatched bar (`~` in quick add). You can also use "Add 2 weeks of buffer after this" on any task. Guides for PhD planning commonly suggest a few weeks of buffer per phase.
 - **Keyboard.** ←/→ move the selected item by a day (Shift: a week), Alt+←/→ resize it, and ↑/↓ move it to another phase. Press **?** for a card with every gesture.
 - **Comfortable or Compact spacing**, set in project settings.
+- **Use only what you need.** Under project settings → **Features**, switch tools on or off for each timeline: Links, Progress, Reminders, Key dates, Locations, Buffer time, Plan B, Journal and Celebrations. You can also pick a preset, **Essentials** or **Everything**. Switching something off only hides it; your data stays in the note. A new **Blank** project starts with the essentials, and **Dissertation** starts with everything.
 - **Side panel** for details: dates, phase, progress, a linked note, and notes.
 - **Undo / redo** with Ctrl+Z / Ctrl+Shift+Z.
 - **Tick things off: "How did it go?"** Mark a task, milestone or deadline done with the checkbox or <kbd>Space</kbd>. You get a burst of confetti 🎉, then a quick reflection: a mood face, a few words, and whether you finished early or late.
@@ -53,6 +54,10 @@ A simple, beautiful Gantt chart for Obsidian. Plan a project (or a whole dissert
 | Link by dragging | Folded phases | Every gesture (?) |
 |---|---|---|
 | ![](docs/images/17-link-drag.png) | ![](docs/images/15-folded.png) | ![](docs/images/16-help.png) |
+
+| Features on/off | A fresh, calm timeline |
+|---|---|
+| ![](docs/images/19-features.png) | ![](docs/images/18-sparse-dark.png) |
 
 ### The print export
 

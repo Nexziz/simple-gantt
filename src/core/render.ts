@@ -1,7 +1,8 @@
 import { MONTHS_LONG, MONTHS_SHORT, dayFromYmd, formatDay, monthEnd, toDay, weekday, ymd } from "./dates";
-import { Layout, Measure, Placed, computeLayout } from "./layout";
+import { Lane, Layout, Measure, Placed, computeLayout } from "./layout";
 import { PRINT_THEME, Theme, inkOnFill } from "./theme";
 import { earliestAfter } from "./links";
+import { isOn } from "./features";
 import { ITEM_TYPE_LABELS, Mood, Project, isDone } from "./types";
 
 /** Mood scale for journal dots: diverging red → neutral grey → blue. */
@@ -242,27 +243,35 @@ export function paintBody(layout: Layout, o: PaintOptions): SVGSVGElement {
 		if (odd) svgEl("rect", { x: x0, y: 0, width: x1 - x0, height: layout.bodyH, fill: theme.surfaceAlt, opacity: 0.55 }, svg);
 		odd = !odd;
 		if (mo.start !== layout.viewStart)
-			svgEl("line", { x1: x0 + 0.5, x2: x0 + 0.5, y1: 0, y2: layout.bodyH, stroke: mo.m === 0 ? theme.axis : theme.grid }, svg);
+			svgEl("line", { x1: x0 + 0.5, x2: x0 + 0.5, y1: 0, y2: layout.bodyH, stroke: mo.m === 0 ? theme.axis : theme.grid, opacity: mo.m === 0 ? 0.9 : 0.6 }, svg);
 	}
 	if (layout.pxPerDay >= 10) {
 		for (let d = layout.viewStart; d <= layout.viewEnd; d++) {
 			if (weekday(d) === 5)
-				svgEl("rect", { x: layout.xOf(d), y: 0, width: layout.pxPerDay * 2, height: layout.bodyH, fill: theme.surfaceAlt, opacity: 0.8 }, svg);
+				svgEl("rect", { x: layout.xOf(d), y: 0, width: layout.pxPerDay * 2, height: layout.bodyH, fill: theme.surfaceAlt, opacity: 0.45 }, svg);
 		}
 	}
 
 	// Lane separators (with interactive hit areas for drag-to-create)
+	const hints = o.interactive ? laneHints(layout) : new Map<Lane, { text: string; always: boolean }>();
 	layout.lanes.forEach((lane, i) => {
 		if (o.interactive)
 			svgEl("rect", {
 				x: 0, y: lane.y, width: layout.width, height: lane.height, fill: "transparent",
 				class: "sg-lane-hit", "data-lane": lane.key,
 			}, svg);
+		// Must directly follow its hit rect: CSS shows it while that rect is hovered.
+		const hint = hints.get(lane);
+		if (hint)
+			text(svg, 16, lane.y + lane.height / 2, hint.text, {
+				fill: theme.inkMuted, "font-size": 12, "font-style": "italic", "pointer-events": "none",
+				class: `sg-lane-hint${hint.always ? " is-always" : ""}`,
+			});
 		const next = layout.lanes[i + 1];
 		const strong = lane.kind !== "phase" && next && next.kind === "phase";
 		svgEl("line", {
 			x1: 0, x2: layout.width, y1: lane.y + lane.height - 0.5, y2: lane.y + lane.height - 0.5,
-			stroke: strong ? theme.axis : theme.grid, "pointer-events": "none",
+			stroke: strong ? theme.axis : theme.grid, opacity: strong ? 0.9 : 0.6, "pointer-events": "none",
 		}, svg);
 	});
 
@@ -281,7 +290,7 @@ export function paintBody(layout: Layout, o: PaintOptions): SVGSVGElement {
 		svgEl("line", { x1: x, x2: x, y1: 0, y2: layout.bodyH, stroke: theme.accent, "stroke-width": 1.5, "pointer-events": "none" }, svg);
 	}
 
-	paintLinks(svg, layout, o);
+	if (layout.on("links")) paintLinks(svg, layout, o);
 
 	const items = svgEl("g", { class: "sg-items" }, svg);
 	const bufferIds = new Map<string, string>();
@@ -299,7 +308,6 @@ export function paintBody(layout: Layout, o: PaintOptions): SVGSVGElement {
 			return `url(#${id})`;
 		},
 	};
-	if (o.interactive) paintEmptyHints(svg, layout, o);
 	for (const p of layout.placed) paintItem(items, p, layout, o, fills);
 	return svg;
 }
@@ -311,20 +319,24 @@ interface Fills {
 	buffer: (color: string) => string;
 }
 
-/** Quiet instructions in rows that are still empty, so it's obvious how to start. */
-function paintEmptyHints(svg: SVGSVGElement, layout: Layout, o: PaintOptions) {
+/**
+ * How-to hints for empty rows. They only appear while the row is hovered, so the chart stays calm;
+ * a brand-new project shows a single hint in its first phase row until something is added.
+ */
+function laneHints(layout: Layout): Map<Lane, { text: string; always: boolean }> {
 	const used = new Set(layout.placed.map((p) => p.lane));
+	const phases = layout.lanes.filter((l) => l.kind === "phase");
+	const fresh = phases.length > 0 && phases.every((l) => !used.has(l));
+	const out = new Map<Lane, { text: string; always: boolean }>();
 	for (const lane of layout.lanes) {
 		if (used.has(lane)) continue;
-		const hint =
-			lane.kind === "phase" ? "Drag across this row to add a task · double-click for a milestone" :
-			lane.kind === "keydates" ? "Double-click to add a key date, or type “!Deadline 15 Feb” above" :
-			lane.kind === "locations" ? "Drag across this row to add a place you'll be" : null;
-		if (hint)
-			text(svg, 16, lane.y + lane.height / 2, hint, {
-				fill: o.theme.inkMuted, "font-size": 12, "font-style": "italic", "pointer-events": "none", opacity: 0.85,
-			});
+		const text =
+			lane.kind === "phase" ? "Drag to add a task · double-click for a milestone" :
+			lane.kind === "keydates" ? "Double-click to add a key date" :
+			lane.kind === "locations" ? "Drag to add a place you'll be" : null;
+		if (text) out.set(lane, { text, always: fresh && lane === phases[0] });
 	}
+	return out;
 }
 
 function paintItem(parent: Element, p: Placed, layout: Layout, o: PaintOptions, fills: Fills) {
@@ -369,13 +381,13 @@ function paintItem(parent: Element, p: Placed, layout: Layout, o: PaintOptions, 
 			svgEl("rect", { x: p.x0 - 2, y: top, width: hw + 2, height: layout.g.barH, fill: "transparent", class: "sg-handle", "data-part": "start" }, g);
 			svgEl("rect", { x: p.x1 - hw, y: top, width: hw + 2, height: layout.g.barH, fill: "transparent", class: "sg-handle", "data-part": "end" }, g);
 		}
-		if (o.interactive) connector(g, connectorX(p), p.cy, color, theme);
+		if (o.interactive && layout.on("links")) connector(g, connectorX(p), p.cy, color, theme);
 	} else if (it.type === "task") {
 		const w = p.x1 - p.x0;
 		svgEl("rect", { x: p.x0, y: top, width: w, height: layout.g.barH, rx: 4, fill: color, class: "sg-mark", "data-part": "body" }, g);
 		const prog = Math.max(0, Math.min(100, it.progress ?? 0));
 		// Progress sits as a slim track just under the bar so it never fights the label.
-		if (prog > 0 && prog < 100 && w > 12) {
+		if (layout.on("progress") && prog > 0 && prog < 100 && w > 12) {
 			const ty = top + layout.g.barH + 2;
 			svgEl("rect", { x: p.x0, y: ty, width: w, height: 2.5, rx: 1.25, fill: color, opacity: 0.22, "pointer-events": "none" }, g);
 			svgEl("rect", { x: p.x0, y: ty, width: (w * prog) / 100, height: 2.5, rx: 1.25, fill: color, "pointer-events": "none" }, g);
@@ -388,7 +400,7 @@ function paintItem(parent: Element, p: Placed, layout: Layout, o: PaintOptions, 
 			svgEl("rect", { x: p.x0 - 2, y: top, width: hw + 2, height: layout.g.barH, fill: "transparent", class: "sg-handle", "data-part": "start" }, g);
 			svgEl("rect", { x: p.x1 - hw, y: top, width: hw + 2, height: layout.g.barH, fill: "transparent", class: "sg-handle", "data-part": "end" }, g);
 		}
-		if (o.interactive && !it.dropped) connector(g, connectorX(p), p.cy, color, theme);
+		if (o.interactive && !it.dropped && layout.on("links")) connector(g, connectorX(p), p.cy, color, theme);
 	} else if (it.type === "location") {
 		const w = p.x1 - p.x0;
 		svgEl("rect", {
@@ -412,7 +424,7 @@ function paintItem(parent: Element, p: Placed, layout: Layout, o: PaintOptions, 
 				"stroke-width": 2, "stroke-linejoin": "round", class: "sg-mark", "data-part": "body",
 			}, g);
 			if (isDone(it) && !p.lane.collapsed) check(g, cx, p.cy, 3.2, p.color === "yellow" ? "#0b0b0b" : "#ffffff");
-			if (o.interactive && !it.dropped) connector(g, connectorX(p), p.cy, color, theme);
+			if (o.interactive && !it.dropped && layout.on("links")) connector(g, connectorX(p), p.cy, color, theme);
 		} else if (it.type === "deadline") {
 			flag(g, cx, p.cy - 8, 8, theme.deadline).setAttribute("data-part", "body");
 		} else {
@@ -634,7 +646,7 @@ function buildLegend(project: Project, theme: Theme, measure: Measure, maxW: num
 	const entries: { draw: (g: SVGGElement, x: number, y: number) => void; label: string }[] = [];
 	for (const ph of project.phases)
 		entries.push({ label: ph.name, draw: (g, x, y) => svgEl("rect", { x, y: y - 6, width: 18, height: 12, rx: 3, fill: theme.palette[ph.color] }, g) });
-	const present = new Set(project.items.map((i) => i.type));
+	const present = new Set(project.items.filter((i) => (i.type !== "location" || isOn(project, "locations")) && (i.type !== "event" || isOn(project, "events"))).map((i) => i.type));
 	const symbols: [keyof typeof ITEM_TYPE_LABELS, (g: SVGGElement, x: number, y: number) => void][] = [
 		["task", (g, x, y) => svgEl("rect", { x, y: y - 6, width: 18, height: 12, rx: 3, fill: theme.inkMuted }, g)],
 		["milestone", (g, x, y) => svgEl("path", { d: `M${x + 9},${y - 7} L${x + 16},${y} L${x + 9},${y + 7} L${x + 2},${y} Z`, fill: theme.inkSecondary }, g)],
@@ -646,7 +658,7 @@ function buildLegend(project: Project, theme: Theme, measure: Measure, maxW: num
 		}],
 	];
 	const symbolEntries = symbols.filter(([t]) => present.has(t)).map(([t, draw]) => ({ label: ITEM_TYPE_LABELS[t], draw }));
-	const pending = project.items.filter((i) => i.planB && !i.planB.status && !isDone(i) && !i.dropped);
+	const pending = isOn(project, "planb") ? project.items.filter((i) => i.planB && !i.planB.status && !isDone(i) && !i.dropped) : [];
 	if (pending.some((i) => i.planB!.start))
 		symbolEntries.push({ label: "Plan B (contingency)", draw: (g, x, y) => svgEl("rect", { x: x + 0.75, y: y - 5.5, width: 16.5, height: 11, rx: 3, fill: theme.inkMuted, "fill-opacity": 0.12, stroke: theme.inkSecondary, "stroke-width": 1.25, "stroke-dasharray": "3 2" }, g) });
 	if (pending.length)
@@ -656,7 +668,7 @@ function buildLegend(project: Project, theme: Theme, measure: Measure, maxW: num
 			svgEl("rect", { x: x + 0.5, y: y - 5.5, width: 17, height: 11, rx: 3, fill: theme.surfaceAlt, stroke: theme.inkMuted }, g);
 			for (let i = 0; i < 3; i++) svgEl("line", { x1: x + 3 + i * 5, y1: y + 5, x2: x + 8 + i * 5, y2: y - 5, stroke: theme.inkMuted, "stroke-width": 1.4 }, g);
 		} });
-	if (project.items.some((i) => i.after?.length))
+	if (isOn(project, "links") && project.items.some((i) => i.after?.length))
 		symbolEntries.push({ label: "Comes after", draw: (g, x, y) => {
 			svgEl("path", { d: `M${x},${y - 4} h5 V${y + 3} H${x + 17}`, fill: "none", stroke: theme.inkMuted, "stroke-width": 1.25 }, g);
 			svgEl("path", { d: `M${x + 12},${y - 0.5} L${x + 18},${y + 3} L${x + 12},${y + 6.5} Z`, fill: theme.inkMuted }, g);
