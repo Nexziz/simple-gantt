@@ -1,0 +1,219 @@
+import { fromDay, isIsoDate, toDay } from "./dates";
+import {
+	CHECKIN_LABELS, COLOR_ORDER, CheckIn, ColorName, GanttItem, ITEM_TYPES, ItemType, JournalEntry, Mood, Phase, Project,
+	isCheckable, isRangeType, newId, slugify,
+} from "./types";
+
+/**
+ * A project lives in a normal Markdown note:
+ *
+ *   ---
+ *   simple-gantt: true
+ *   ---
+ *   ```simple-gantt
+ *   title: …
+ *   items: …
+ *   ```
+ *
+ * The YAML inside the fenced block is the source of truth; anything else in the note is yours.
+ */
+
+export const BLOCK_LANG = "simple-gantt";
+export const FRONTMATTER_KEY = "simple-gantt";
+const BLOCK_RE = /^```simple-gantt[^\n]*\n([\s\S]*?)^```[ \t]*$/m;
+
+export function extractBlock(markdown: string): string | null {
+	const m = BLOCK_RE.exec(markdown);
+	return m ? m[1] : null;
+}
+
+/** Replace the data block (or append one) and return the new note text. */
+export function replaceBlock(markdown: string, yaml: string): string {
+	const block = "```" + BLOCK_LANG + "\n" + yaml.replace(/\n*$/, "\n") + "```";
+	if (BLOCK_RE.test(markdown)) return markdown.replace(BLOCK_RE, () => block);
+	return markdown.replace(/\n*$/, "\n\n") + block + "\n";
+}
+
+export function noteTemplate(yaml: string): string {
+	return [
+		"---",
+		`${FRONTMATTER_KEY}: true`,
+		"---",
+		"",
+		"Open this timeline with the **Simple Gantt** button in the left ribbon. The block below stores its data and shows a preview in reading view.",
+		"",
+		"```" + BLOCK_LANG,
+		yaml.replace(/\n*$/, ""),
+		"```",
+		"",
+	].join("\n");
+}
+
+function asDate(v: unknown): string | null {
+	if (v instanceof Date && !isNaN(v.getTime())) return v.toISOString().slice(0, 10);
+	if (typeof v === "string") {
+		const s = v.trim();
+		if (isIsoDate(s)) return s;
+		const loose = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(s);
+		if (loose) return fromDay(Math.round(Date.UTC(+loose[1], +loose[2] - 1, +loose[3]) / 86400000));
+	}
+	return null;
+}
+
+function asText(v: unknown): string | undefined {
+	if (v === null || v === undefined) return undefined;
+	const s = String(v).trim();
+	return s || undefined;
+}
+
+/** Turn whatever the YAML contained into a valid project, repairing what it can. */
+export function normalizeProject(raw: unknown, fallbackTitle = "Untitled project"): Project {
+	const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+	const today = new Date().toISOString().slice(0, 10);
+	let start = asDate(r.start) ?? today;
+	let end = asDate(r.end) ?? fromDay(toDay(start) + 364);
+	if (end < start) [start, end] = [end, start];
+
+	const project: Project = {
+		title: asText(r.title) ?? fallbackTitle,
+		start,
+		end,
+		phases: [],
+		items: [],
+	};
+	const subtitle = asText(r.subtitle);
+	const author = asText(r.author);
+	if (subtitle) project.subtitle = subtitle;
+	if (author) project.author = author;
+
+	const usedIds = new Set<string>();
+	for (const ph of Array.isArray(r.phases) ? r.phases : []) {
+		const o = (ph && typeof ph === "object" ? ph : { name: ph }) as Record<string, unknown>;
+		const name = asText(o.name) ?? asText(o.id) ?? "Phase";
+		let id = asText(o.id) ?? slugify(name);
+		while (usedIds.has(id)) id += "-2";
+		usedIds.add(id);
+		const color = (COLOR_ORDER as string[]).includes(String(o.color))
+			? (o.color as ColorName)
+			: COLOR_ORDER[project.phases.length % COLOR_ORDER.length];
+		project.phases.push({ id, name, color } as Phase);
+	}
+
+	const itemIds = new Set<string>();
+	for (const it of Array.isArray(r.items) ? r.items : []) {
+		if (!it || typeof it !== "object") continue;
+		const o = it as Record<string, unknown>;
+		const type: ItemType = (ITEM_TYPES as string[]).includes(String(o.type)) ? (o.type as ItemType) : "task";
+		const s = asDate(o.start) ?? asDate(o.date) ?? start;
+		let id = asText(o.id) ?? newId();
+		while (itemIds.has(id)) id = newId();
+		itemIds.add(id);
+		const item: GanttItem = { id, type, title: asText(o.title) ?? "Untitled", start: s };
+		if (isRangeType(type)) {
+			const e = asDate(o.end) ?? s;
+			item.end = e < s ? s : e;
+		}
+		const phase = asText(o.phase);
+		if (phase) {
+			const match = project.phases.find((p) => p.id === phase) ?? project.phases.find((p) => p.name.toLowerCase() === phase.toLowerCase());
+			item.phase = match ? match.id : phase;
+		}
+		if (type === "task" && o.progress !== undefined && o.progress !== null) {
+			const n = Math.round(Number(String(o.progress).replace("%", "")));
+			if (!isNaN(n) && n > 0) item.progress = Math.min(100, n);
+		}
+		const note = asText(o.note);
+		const description = asText(o.description);
+		if (note) item.note = note;
+		if (description) item.description = description;
+		if (isCheckable(item)) {
+			if (o.done === true || String(o.done) === "true") item.done = true;
+			if (item.type === "task" && item.progress === 100) item.done = true;
+			const doneOn = asDate(o.doneOn);
+			if (item.done && doneOn) item.doneOn = doneOn;
+			const rv = o.review && typeof o.review === "object" ? (o.review as Record<string, unknown>) : null;
+			if (rv) {
+				const mood = asMood(rv.mood);
+				const text = asText(rv.text);
+				if (mood || text) item.review = { ...(mood ? { mood } : {}), ...(text ? { text } : {}) };
+			}
+			const pb = o.planB && typeof o.planB === "object" ? (o.planB as Record<string, unknown>) : null;
+			const by = pb && asDate(pb.by);
+			if (pb && by) {
+				item.planB = { by, title: asText(pb.title) ?? "Alternative" };
+				const ps = asDate(pb.start);
+				const pe = asDate(pb.end);
+				if (ps) {
+					item.planB.start = ps;
+					item.planB.end = pe && pe >= ps ? pe : ps;
+				}
+				const pn = asText(pb.note);
+				if (pn) item.planB.note = pn;
+				if (pb.status === "active" || pb.status === "dismissed") item.planB.status = pb.status;
+			}
+		}
+		if (o.dropped === true || String(o.dropped) === "true") item.dropped = true;
+		project.items.push(item);
+	}
+
+	if (typeof r.checkin === "string" && r.checkin in CHECKIN_LABELS) project.checkin = r.checkin as CheckIn;
+	const journal: JournalEntry[] = [];
+	for (const e of Array.isArray(r.journal) ? r.journal : []) {
+		if (!e || typeof e !== "object") continue;
+		const o = e as Record<string, unknown>;
+		const date = asDate(o.date);
+		const text = asText(o.text) ?? "";
+		if (!date || (!text && !o.mood)) continue;
+		const entry: JournalEntry = { id: asText(o.id) ?? newId(), date, text };
+		const mood = asMood(o.mood);
+		if (mood) entry.mood = mood;
+		journal.push(entry);
+	}
+	if (journal.length) project.journal = journal;
+	return project;
+}
+
+function asMood(v: unknown): Mood | undefined {
+	const n = Math.round(Number(v));
+	return n >= 1 && n <= 5 ? (n as Mood) : undefined;
+}
+
+/** A plain object with keys in a friendly, stable order for YAML output. */
+export function toPlain(project: Project): Record<string, unknown> {
+	const out: Record<string, unknown> = { title: project.title };
+	if (project.subtitle) out.subtitle = project.subtitle;
+	if (project.author) out.author = project.author;
+	out.start = project.start;
+	out.end = project.end;
+	out.phases = project.phases.map((p) => ({ id: p.id, name: p.name, color: p.color }));
+	const sorted = [...project.items].sort((a, b) => a.start.localeCompare(b.start) || a.title.localeCompare(b.title));
+	out.items = sorted.map((i) => {
+		const o: Record<string, unknown> = { title: i.title, type: i.type };
+		if (i.phase) o.phase = i.phase;
+		o.start = i.start;
+		if (i.end && isRangeType(i.type)) o.end = i.end;
+		if (i.progress) o.progress = i.progress;
+		if (i.note) o.note = i.note;
+		if (i.description) o.description = i.description;
+		if (i.done) o.done = true;
+		if (i.done && i.doneOn) o.doneOn = i.doneOn;
+		if (i.review && (i.review.mood || i.review.text)) o.review = { ...i.review };
+		if (i.planB) {
+			const pb: Record<string, unknown> = { by: i.planB.by, title: i.planB.title };
+			if (i.planB.start) pb.start = i.planB.start;
+			if (i.planB.start && i.planB.end) pb.end = i.planB.end;
+			if (i.planB.note) pb.note = i.planB.note;
+			if (i.planB.status) pb.status = i.planB.status;
+			o.planB = pb;
+		}
+		if (i.dropped) o.dropped = true;
+		o.id = i.id;
+		return o;
+	});
+	if (project.checkin) out.checkin = project.checkin;
+	if (project.journal?.length)
+		out.journal = [...project.journal]
+			.sort((a, b) => a.date.localeCompare(b.date))
+			.map((e) => ({ date: e.date, ...(e.mood ? { mood: e.mood } : {}), text: e.text, id: e.id }));
+	return out;
+}

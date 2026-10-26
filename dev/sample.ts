@@ -1,0 +1,58 @@
+import type { Project } from "../src/core/types";
+
+/** A realistic 12-month dissertation plan used by the preview harness and screenshots. */
+export const SAMPLE: Project = {
+	title: "PhD Dissertation — Year 2",
+	subtitle: "Community energy cooperatives and local climate action",
+	author: "Alex Morgan",
+	start: "2026-09-01",
+	end: "2027-08-31",
+	phases: [
+		{ id: "literature", name: "Literature review", color: "blue" },
+		{ id: "methodology", name: "Methodology & ethics", color: "orange" },
+		{ id: "data", name: "Data collection", color: "aqua" },
+		{ id: "analysis", name: "Analysis", color: "yellow" },
+		{ id: "writing", name: "Writing", color: "magenta" },
+		{ id: "submission", name: "Submission", color: "green" },
+	],
+	items: [
+		{
+			id: "a1", type: "task", title: "Scoping & reading list", phase: "literature", start: "2026-09-01", end: "2026-09-30",
+			progress: 100, done: true, doneOn: "2026-09-27",
+			review: { mood: 4, text: "Found three key papers that reshaped my question. Should have started the reference manager on day one." },
+		},
+		{ id: "a0", type: "milestone", title: "Research question agreed", phase: "literature", start: "2026-10-21" },
+		{ id: "a2", type: "task", title: "Systematic literature review", phase: "literature", start: "2026-10-01", end: "2026-12-18", progress: 40 },
+		{ id: "a3", type: "milestone", title: "Chapter 2 drafted", phase: "literature", start: "2027-01-15" },
+		{ id: "b1", type: "task", title: "Research design", phase: "methodology", start: "2026-10-12", end: "2026-11-27", progress: 20 },
+		{
+			id: "b2", type: "task", title: "Ethics application", phase: "methodology", start: "2026-11-16", end: "2026-12-22",
+			planB: { by: "2027-01-08", title: "Use public secondary data", start: "2027-02-15", end: "2027-04-09", note: "UK Data Service has a comparable panel survey; check licence." },
+		},
+		{ id: "b3", type: "task", title: "Pilot study", phase: "methodology", start: "2027-01-18", end: "2027-02-12" },
+		{ id: "c1", type: "task", title: "Interviews · round 1", phase: "data", start: "2027-02-15", end: "2027-04-09" },
+		{ id: "c2", type: "task", title: "Survey live", phase: "data", start: "2027-03-01", end: "2027-04-30" },
+		{ id: "c3", type: "task", title: "Interviews · round 2", phase: "data", start: "2027-05-03", end: "2027-05-28" },
+		{ id: "d1", type: "task", title: "Transcription & coding", phase: "analysis", start: "2027-03-15", end: "2027-06-11" },
+		{ id: "d2", type: "task", title: "Statistical analysis", phase: "analysis", start: "2027-05-03", end: "2027-06-30" },
+		{ id: "d3", type: "milestone", title: "Findings to supervisor", phase: "analysis", start: "2027-07-02" },
+		{ id: "e1", type: "task", title: "Introduction & methods chapters", phase: "writing", start: "2027-01-04", end: "2027-03-26" },
+		{ id: "e2", type: "task", title: "Results & discussion", phase: "writing", start: "2027-06-01", end: "2027-07-30" },
+		{ id: "e3", type: "milestone", title: "Full draft", phase: "writing", start: "2027-08-02" },
+		{ id: "f1", type: "task", title: "Revisions", phase: "submission", start: "2027-08-02", end: "2027-08-20" },
+		{ id: "f2", type: "task", title: "Proofread", phase: "submission", start: "2027-08-16", end: "2027-08-25" },
+		{ id: "k1", type: "deadline", title: "Ethics committee", start: "2027-01-08" },
+		{ id: "k2", type: "deadline", title: "Submission", start: "2027-08-27" },
+		{ id: "k3", type: "event", title: "Progress review", start: "2026-12-03" },
+		{ id: "k4", type: "event", title: "Poster · ECPR conference", start: "2027-04-21" },
+		{ id: "l1", type: "location", title: "Fieldwork · Lisbon", start: "2027-02-22", end: "2027-04-09" },
+		{ id: "l2", type: "location", title: "Vienna", start: "2027-04-19", end: "2027-04-24" },
+		{ id: "l3", type: "location", title: "Writing retreat · Lake District", start: "2027-07-12", end: "2027-07-23" },
+	],
+	checkin: "fortnightly",
+	journal: [
+		{ id: "j1", date: "2026-09-11", mood: 4, text: "First supervision meeting. Scope feels big but exciting — agreed to narrow to two regions." },
+		{ id: "j2", date: "2026-09-25", mood: 5, text: "Reading list done early. Zotero finally organised." },
+		{ id: "j3", date: "2026-10-09", mood: 2, text: "Struggling to frame the research question. Too many directions. Booked an extra meeting." },
+	],
+};

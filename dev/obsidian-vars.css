@@ -1,0 +1,65 @@
+/* Stand-ins for Obsidian's CSS variables so styles.css renders the same in the preview harness. */
+body {
+	margin: 0;
+	--font-interface: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+	--font-ui-small: 13px;
+	--radius-s: 4px;
+	--radius-m: 8px;
+	--radius-l: 12px;
+	font-family: var(--font-interface);
+	background: var(--background-primary);
+	color: var(--text-normal);
+}
+body.theme-light {
+	--background-primary: #ffffff;
+	--background-primary-alt: #fafafa;
+	--background-secondary: #f6f6f6;
+	--background-secondary-alt: #fcfcfc;
+	--background-modifier-border: #e3e3e3;
+	--background-modifier-border-hover: #d0d0d0;
+	--background-modifier-hover: rgba(0, 0, 0, 0.05);
+	--background-modifier-form-field: #ffffff;
+	--text-normal: #222222;
+	--text-muted: #5c5c5c;
+	--text-faint: #ababab;
+	--text-on-accent: #ffffff;
+	--interactive-normal: #ffffff;
+	--interactive-hover: #f0f0f0;
+	--interactive-accent: #7c5cdb;
+	--interactive-accent-hover: #6b4dc9;
+	--text-error: #e93147;
+	--shadow-s: 0 1px 2px rgba(0,0,0,.06), 0 3px 8px rgba(0,0,0,.06);
+	--shadow-l: 0 2px 8px rgba(0,0,0,.08), 0 14px 36px rgba(0,0,0,.14);
+}
+body.theme-dark {
+	--background-primary: #1e1e1e;
+	--background-primary-alt: #242424;
+	--background-secondary: #262626;
+	--background-secondary-alt: #2a2a2a;
+	--background-modifier-border: #333333;
+	--background-modifier-border-hover: #454545;
+	--background-modifier-hover: rgba(255, 255, 255, 0.06);
+	--background-modifier-form-field: #2a2a2a;
+	--text-normal: #dadada;
+	--text-muted: #a3a3a3;
+	--text-faint: #6e6e6e;
+	--text-on-accent: #ffffff;
+	--interactive-normal: #2a2a2a;
+	--interactive-hover: #303030;
+	--interactive-accent: #8a6ce8;
+	--interactive-accent-hover: #9a7ef0;
+	--text-error: #fb464c;
+	--shadow-s: 0 1px 2px rgba(0,0,0,.3), 0 3px 8px rgba(0,0,0,.25);
+	--shadow-l: 0 2px 8px rgba(0,0,0,.35), 0 14px 36px rgba(0,0,0,.45);
+}
+
+/* Mock workspace chrome */
+html, body { height: 100%; }
+.mock-app { display: flex; height: 100vh; background: var(--background-secondary); }
+.mock-ribbon { width: 44px; display: flex; flex-direction: column; align-items: center; gap: 6px; padding-top: 12px; border-right: 1px solid var(--background-modifier-border); color: var(--text-muted); }
+.mock-ribbon span { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 6px; }
+.mock-ribbon span.is-active { background: var(--background-modifier-hover); color: var(--text-normal); }
+.mock-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.mock-tabs { height: 38px; display: flex; align-items: flex-end; padding: 0 8px; }
+.mock-tab { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 14px; border-radius: 8px 8px 0 0; background: var(--background-primary); font-size: 13px; color: var(--text-normal); }
+.mock-content { flex: 1; min-height: 0; background: var(--background-primary); }

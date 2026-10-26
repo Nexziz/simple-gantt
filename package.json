@@ -1,0 +1,32 @@
+{
+  "name": "simple-gantt",
+  "version": "0.2.0",
+  "description": "A simple, beautiful Gantt chart for planning projects in Obsidian.",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+    "test": "node dev/run-tests.mjs && node dev/run-integration.mjs",
+    "preview": "node dev/build-preview.mjs",
+    "screenshots": "node dev/build-preview.mjs && node dev/screenshot.mjs"
+  },
+  "keywords": [
+    "obsidian",
+    "gantt",
+    "timeline",
+    "project",
+    "dissertation"
+  ],
+  "author": "Nexziz",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^26.6.5",
+    "builtin-modules": "^5.4.0",
+    "esbuild": "^0.28.2",
+    "js-yaml": "^5.5.0",
+    "obsidian": "^1.14.4",
+    "tslib": "^2.8.1",
+    "typescript": "^7.0.2"
+  }
+}

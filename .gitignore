@@ -1,0 +1,7 @@
+node_modules/
+main.js
+*.map
+dev/out/
+.DS_Store
+data.json
+*.zip
