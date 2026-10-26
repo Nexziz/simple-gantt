@@ -2,8 +2,7 @@
 export function confetti(host: HTMLElement, x: number, y: number, colors: string[], big = false) {
 	const win = host.ownerDocument.defaultView;
 	if (win?.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
-	const canvas = host.ownerDocument.createElement("canvas");
-	canvas.className = "sg-confetti";
+	const canvas = createEl("canvas", { cls: "sg-confetti" });
 	const rect = host.getBoundingClientRect();
 	const dpr = win?.devicePixelRatio ?? 1;
 	canvas.width = rect.width * dpr;
@@ -50,8 +49,8 @@ export function confetti(host: HTMLElement, x: number, y: number, colors: string
 			} else ctx.fillRect(-p.size / 2, -p.size / 4, p.size, p.size / 2);
 			ctx.restore();
 		}
-		if (t < life) requestAnimationFrame(frame);
+		if (t < life) window.requestAnimationFrame(frame);
 		else canvas.remove();
 	};
-	requestAnimationFrame(frame);
+	window.requestAnimationFrame(frame);
 }

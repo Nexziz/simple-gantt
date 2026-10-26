@@ -1,4 +1,4 @@
-/** A tiny inline icon set (Lucide-style strokes) so the board looks identical everywhere it runs. */
+/** A tiny icon set (Lucide-style strokes) so the board looks identical everywhere it runs. Shapes are constant SVG snippets. */
 const PATHS: Record<string, string> = {
 	plus: '<path d="M12 5v14M5 12h14"/>',
 	x: '<path d="M18 6 6 18M6 6l12 12"/>',
@@ -32,8 +32,24 @@ const PATHS: Record<string, string> = {
 	location: '<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>',
 };
 
-export function icon(name: string, size = 16): string {
-	return `<svg class="sg-icon" xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${PATHS[name] ?? ""}</svg>`;
+const SVG_NS = "http://www.w3.org/2000/svg";
+const TAG_RE = /<(\w+)((?:\s+[\w-]+="[^"]*")*)\s*\/?>/g;
+const ATTR_RE = /([\w-]+)="([^"]*)"/g;
+
+/** Build an icon as real SVG elements (no HTML parsing), from the constant shapes above. */
+export function icon(name: string, size = 16): SVGSVGElement {
+	const svg = document.createElementNS(SVG_NS, "svg");
+	const attrs: Record<string, string> = {
+		class: "sg-icon", width: String(size), height: String(size), viewBox: "0 0 24 24", fill: "none",
+		stroke: "currentColor", "stroke-width": "2", "stroke-linecap": "round", "stroke-linejoin": "round",
+	};
+	for (const [k, v] of Object.entries(attrs)) svg.setAttribute(k, v);
+	for (const [, tag, attrText] of (PATHS[name] ?? "").matchAll(TAG_RE)) {
+		const el = document.createElementNS(SVG_NS, tag);
+		for (const [, k, v] of attrText.matchAll(ATTR_RE)) el.setAttribute(k, v);
+		svg.appendChild(el);
+	}
+	return svg;
 }
 
 /** Ribbon / view icon, in Obsidian's 100×100 icon coordinate space. */

@@ -1,8 +1,8 @@
 {
   "id": "simple-gantt",
   "name": "Simple Gantt",
-  "version": "0.2.0",
-  "minAppVersion": "1.4.0",
+  "version": "0.2.1",
+  "minAppVersion": "1.7.2",
   "description": "Plan projects on a clean Gantt chart: phases, tasks, milestones, deadlines, key dates and locations, with one-line quick add and print-ready export.",
   "author": "Nexziz",
   "authorUrl": "https://github.com/Nexziz",

@@ -31,7 +31,7 @@ export default class SimpleGanttPlugin extends Plugin {
 			checkCallback: (checking) => {
 				const file = this.app.workspace.getActiveFile();
 				const ok = !!file && this.isProject(file);
-				if (ok && !checking) this.activateView(file!.path);
+				if (ok && !checking) void this.activateView(file.path);
 				return ok;
 			},
 		});
@@ -48,15 +48,16 @@ export default class SimpleGanttPlugin extends Plugin {
 			}
 			wrap.appendChild(renderExportSvg(project, { width: 1600, today: toDay(todayIso()) }));
 			const btn = wrap.createEl("button", { cls: "sg-btn sg-inline-open" });
-			btn.innerHTML = `${icon("external", 14)}<span>Open in Simple Gantt</span>`;
-			btn.addEventListener("click", () => this.activateView(ctx.sourcePath));
+			btn.append(icon("external", 14), createSpan({ text: "Open in Simple Gantt" }));
+			btn.addEventListener("click", () => void this.activateView(ctx.sourcePath));
 		});
 
 		this.addSettingTab(new SimpleGanttSettingTab(this.app, this));
 	}
 
 	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		const saved = (await this.loadData()) as Partial<SimpleGanttSettings> | null;
+		this.settings = { ...DEFAULT_SETTINGS, ...saved };
 	}
 
 	async saveSettings() {

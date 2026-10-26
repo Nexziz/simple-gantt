@@ -36,6 +36,7 @@
 .sg-root button { font-family: inherit; }
 .sg-icon { flex: none; display: block; }
 .sg-spacer { flex: 1; }
+.sg-hidden { display: none; }
 
 /* ── Toolbar ─────────────────────────────────────────────────────── */
 .sg-toolbar {
@@ -225,6 +226,7 @@
 .sg-quick-preview .sg-pv-type { color: var(--text-normal); font-weight: 500; }
 .sg-pv-phase i, .sg-tt-phase i {
 	display: inline-block;
+	background: var(--sg-dot);
 	width: 8px;
 	height: 8px;
 	border-radius: 2px;
@@ -244,7 +246,7 @@
 	background: var(--background-primary);
 	overscroll-behavior: contain;
 }
-.sg-canvas { display: grid; position: relative; width: max-content; }
+.sg-canvas { display: grid; position: relative; width: max-content; grid-template-columns: var(--sg-cols); grid-template-rows: var(--sg-rows); }
 .sg-canvas svg { display: block; overflow: visible; }
 .sg-corner {
 	position: sticky;
@@ -270,7 +272,8 @@
 .sg-body { position: relative; touch-action: pan-x pan-y; }
 
 .sg-body .sg-item { cursor: grab; }
-.sg-root.is-dragging, .sg-root.is-dragging * { cursor: grabbing !important; user-select: none; }
+/* :not(#…) lifts specificity above the per-element cursors, so no important flag is needed. */
+.sg-root.is-dragging, .sg-root.is-dragging *:not(#sg-drag) { cursor: grabbing; user-select: none; }
 .sg-body .sg-handle { cursor: ew-resize; }
 .sg-body .sg-lane-hit { cursor: crosshair; }
 .sg-body .sg-item .sg-mark { transition: filter 0.15s; }
@@ -308,13 +311,14 @@
 	color: var(--text-muted);
 	pointer-events: none;
 	opacity: 0;
+	transform: translate(var(--sg-x, 0), var(--sg-y, 0));
 	transition: opacity 0.12s;
 }
 .sg-tooltip.is-visible { opacity: 1; }
 .sg-tooltip b { color: var(--text-normal); font-size: 13px; }
 .sg-tooltip span { display: flex; align-items: center; gap: 6px; }
 .sg-tt-progress { height: 4px; border-radius: 2px; background: var(--background-modifier-border); margin-top: 3px; }
-.sg-tt-progress i { display: block; height: 100%; border-radius: 2px; background: var(--interactive-accent); }
+.sg-tt-progress i { display: block; width: var(--sg-progress, 0); height: 100%; border-radius: 2px; background: var(--interactive-accent); }
 .sg-tt-desc { color: var(--text-normal); margin-top: 3px; white-space: pre-wrap; }
 .sg-tt-note { color: var(--interactive-accent); }
 
@@ -427,6 +431,7 @@
 	border: 2px solid var(--background-primary);
 	border-radius: 7px;
 	box-shadow: 0 0 0 1px var(--background-modifier-border);
+	background: var(--sg-swatch);
 	cursor: pointer;
 	transition: transform 0.12s;
 }
@@ -441,6 +446,8 @@
 /* ── Menus ───────────────────────────────────────────────────────── */
 .sg-menu {
 	position: absolute;
+	left: var(--sg-menu-x, 8px);
+	top: var(--sg-menu-y, 8px);
 	z-index: 30;
 	min-width: 220px;
 	padding: 5px;
@@ -611,7 +618,7 @@
 	color: var(--sg-nudge);
 }
 .sg-nudge-decision .sg-nudge-icon { color: #b07800; }
-.sg-nudge-text { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; column-gap: 6px; font-size: 13px; line-height: 1.4; }
+.sg-nudge-text { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 0 6px; font-size: 13px; line-height: 1.4; }
 .sg-nudge-text strong { color: var(--text-normal); }
 .sg-nudge-text span { color: var(--text-muted); }
 .sg-nudge-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
@@ -797,7 +804,8 @@
 	color: var(--text-muted);
 	font-size: 12px;
 	cursor: pointer;
-	text-decoration: underline dotted;
+	border-bottom: 1px dotted currentColor;
+	border-radius: 0;
 }
 .sg-link:hover { color: var(--text-normal); }
 .sg-rhythm {
@@ -934,5 +942,5 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.sg-root *, .sg-root *::before { animation: none !important; transition: none !important; }
+	.sg-root *:not(#sg-motion), .sg-root *:not(#sg-motion)::before { animation: none; transition: none; }
 }

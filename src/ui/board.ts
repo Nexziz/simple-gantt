@@ -1,7 +1,7 @@
 import { MONTHS_LONG, formatDay, formatDuration, formatRange, fromDay, toDay, ymd } from "../core/dates";
 import { PROMPTS, REVIEW_PROMPTS, prompt, slotStates } from "../core/journal";
 import { Nudge, computeNudges, nextDeadline, overallProgress, rippleShift } from "../core/nudges";
-import { G, Layout, Placed, computeLayout, itemDays } from "../core/layout";
+import { G, Layout, Placed, computeLayout } from "../core/layout";
 import { ParseResult, parseQuickAdd } from "../core/parse";
 import { MOOD_COLORS, makeMeasure, paintBody, paintHeader, paintLabels, renderExportSvg, svgEl, svgToPng, svgToString } from "../core/render";
 import { TEMPLATES, TemplateId } from "../core/templates";
@@ -55,16 +55,35 @@ interface Drag {
 
 type El = HTMLElement;
 
+/** A child for h(): an element, text, or nothing. */
+type Kid = Node | string | null | undefined | false;
+
 function h<K extends keyof HTMLElementTagNameMap>(
-	tag: K, opts: { cls?: string; text?: string; html?: string; attrs?: Record<string, string> } = {}, parent?: Element,
+	tag: K, opts: { cls?: string; text?: string; kids?: Kid[]; attrs?: Record<string, string> } = {}, parent?: Element,
 ): HTMLElementTagNameMap[K] {
-	const el = document.createElement(tag);
+	const el = createEl(tag);
 	if (opts.cls) el.className = opts.cls;
 	if (opts.text !== undefined) el.textContent = opts.text;
-	if (opts.html !== undefined) el.innerHTML = opts.html;
+	if (opts.kids) append(el, opts.kids);
 	if (opts.attrs) for (const [k, v] of Object.entries(opts.attrs)) el.setAttribute(k, v);
 	if (parent) parent.appendChild(el);
 	return el;
+}
+
+function append(el: Element, kids: Kid[]) {
+	for (const k of kids) if (k) el.append(k);
+}
+
+/** A <span> with text, for icon + label buttons. */
+function span(text: string, cls?: string): HTMLSpanElement {
+	return h("span", { text, cls });
+}
+
+/** A small colour dot (phase colour) as an element. */
+function dot(color: string): HTMLElement {
+	const i = h("i");
+	i.setCssProps({ "--sg-dot": color });
+	return i;
 }
 
 const PLACEHOLDERS: Record<ItemType, string> = {
@@ -135,7 +154,7 @@ export class GanttBoard {
 
 	destroy() {
 		this.resizeObs.disconnect();
-		cancelAnimationFrame(this.zoomAnim);
+		window.cancelAnimationFrame(this.zoomAnim);
 		this.root.remove();
 	}
 
@@ -180,7 +199,7 @@ export class GanttBoard {
 		this.stats = h("div", { cls: "sg-stats" }, this.toolbar);
 		h("div", { cls: "sg-spacer" }, this.toolbar);
 
-		this.undoBtn = h("button", { cls: "sg-btn sg-icon-btn", html: icon("undo"), attrs: { "aria-label": "Undo (Ctrl+Z)" } }, this.toolbar);
+		this.undoBtn = h("button", { cls: "sg-btn sg-icon-btn", kids: [icon("undo")], attrs: { "aria-label": "Undo (Ctrl+Z)" } }, this.toolbar);
 		this.undoBtn.addEventListener("click", () => this.undo());
 
 		const seg = h("div", { cls: "sg-seg", attrs: { role: "group", "aria-label": "Zoom" } }, this.toolbar);
@@ -189,13 +208,13 @@ export class GanttBoard {
 			b.addEventListener("click", () => this.setZoom(z));
 			this.zoomBtns.set(z, b);
 		}
-		const todayBtn = h("button", { cls: "sg-btn", html: `${icon("today")}<span>Today</span>` }, this.toolbar);
+		const todayBtn = h("button", { cls: "sg-btn", kids: [icon("today"), span(`Today`)] }, this.toolbar);
 		todayBtn.addEventListener("click", () => this.scrollToToday());
-		const exportBtn = h("button", { cls: "sg-btn", html: `${icon("download")}<span>Export</span>` }, this.toolbar);
+		const exportBtn = h("button", { cls: "sg-btn", kids: [icon("download"), span(`Export`)] }, this.toolbar);
 		exportBtn.addEventListener("click", () => this.openExportMenu(exportBtn));
-		const journalBtn = h("button", { cls: "sg-btn sg-journal-btn", html: `${icon("book")}<span>Journal</span>`, attrs: { "aria-label": "Journal (J)" } }, this.toolbar);
+		const journalBtn = h("button", { cls: "sg-btn sg-journal-btn", kids: [icon("book"), span(`Journal`)], attrs: { "aria-label": "Journal (J)" } }, this.toolbar);
 		journalBtn.addEventListener("click", () => (this.panelMode === "journal" ? this.closePanel() : this.openJournal()));
-		const settingsBtn = h("button", { cls: "sg-btn sg-icon-btn", html: icon("settings"), attrs: { "aria-label": "Project settings" } }, this.toolbar);
+		const settingsBtn = h("button", { cls: "sg-btn sg-icon-btn", kids: [icon("settings")], attrs: { "aria-label": "Project settings" } }, this.toolbar);
 		settingsBtn.addEventListener("click", () => this.openProjectPanel());
 
 		// Quick add
@@ -203,7 +222,7 @@ export class GanttBoard {
 		const row = h("div", { cls: "sg-quick-row" }, this.quick);
 		const chips = h("div", { cls: "sg-chips", attrs: { role: "radiogroup", "aria-label": "Type" } }, row);
 		for (const t of ITEM_TYPES) {
-			const c = h("button", { cls: `sg-chip sg-chip-${t}`, html: `${icon(t, 14)}<span>${ITEM_TYPE_LABELS[t]}</span>`, attrs: { role: "radio" } }, chips);
+			const c = h("button", { cls: `sg-chip sg-chip-${t}`, kids: [icon(t, 14), span(`${ITEM_TYPE_LABELS[t]}`)], attrs: { role: "radio" } }, chips);
 			c.addEventListener("click", () => {
 				this.quickType = t;
 				this.syncQuick();
@@ -212,9 +231,9 @@ export class GanttBoard {
 			this.typeChips.set(t, c);
 		}
 		const field = h("div", { cls: "sg-quick-field" }, row);
-		h("span", { cls: "sg-quick-plus", html: icon("plus") }, field);
+		h("span", { cls: "sg-quick-plus", kids: [icon("plus")] }, field);
 		this.quickInput = h("input", { cls: "sg-quick-input", attrs: { type: "text", spellcheck: "false", "aria-label": "Quick add" } }, field);
-		h("kbd", { cls: "sg-kbd", html: icon("enter", 12) }, field);
+		h("kbd", { cls: "sg-kbd", kids: [icon("enter", 12)] }, field);
 		this.quickPreview = h("div", { cls: "sg-quick-preview" }, this.quick);
 		this.quickInput.addEventListener("input", () => this.syncQuick());
 		this.quickInput.addEventListener("keydown", (e) => {
@@ -247,8 +266,8 @@ export class GanttBoard {
 		this.scroller.addEventListener("wheel", (e) => this.onWheel(e), { passive: false });
 		let scrollFrame = 0;
 		this.scroller.addEventListener("scroll", () => {
-			cancelAnimationFrame(scrollFrame);
-			scrollFrame = requestAnimationFrame(() => this.paintHeaderOnly());
+			window.cancelAnimationFrame(scrollFrame);
+			scrollFrame = window.requestAnimationFrame(() => this.paintHeaderOnly());
 		});
 		this.root.addEventListener("keydown", (e) => this.onKey(e));
 		this.root.addEventListener("pointerdown", (e) => {
@@ -259,7 +278,7 @@ export class GanttBoard {
 
 	private buildEmpty() {
 		const card = h("div", { cls: "sg-empty-card" }, this.empty);
-		h("div", { cls: "sg-empty-icon", html: icon("gantt", 28) }, card);
+		h("div", { cls: "sg-empty-icon", kids: [icon("gantt", 28)] }, card);
 		h("h2", { text: "Plan your project on a timeline" }, card);
 		h("p", { text: "Phases, tasks, milestones, deadlines, key dates and places — all on one clean chart you can export for your report." }, card);
 		const opts = h("div", { cls: "sg-empty-options" }, card);
@@ -289,7 +308,7 @@ export class GanttBoard {
 
 	render() {
 		const p = this.project;
-		this.titleBtn.innerHTML = `<span class="sg-title-text">${escapeHtml(p?.title ?? "Simple Gantt")}</span>${icon("chevronDown", 14)}`;
+		this.titleBtn.replaceChildren(span(p?.title ?? "Simple Gantt", "sg-title-text"), icon("chevronDown", 14));
 		for (const [z, b] of this.zoomBtns) b.classList.toggle("is-active", z === this.zoom);
 		this.undoBtn.disabled = !this.undoStack.length;
 		if (!p) {
@@ -311,8 +330,10 @@ export class GanttBoard {
 			theme: this.theme, measure: this.measure, today: toDay(this.host.today()),
 			selectedId: this.selectedId, flashId: this.flashId, interactive: true,
 		};
-		this.canvas.style.gridTemplateColumns = `${labelW}px ${layout.width}px`;
-		this.canvas.style.gridTemplateRows = `${layout.headerH}px ${layout.bodyH}px`;
+		this.canvas.setCssProps({
+			"--sg-cols": `${labelW}px ${layout.width}px`,
+			"--sg-rows": `${layout.headerH}px ${layout.bodyH}px`,
+		});
 		this.corner.replaceChildren();
 		h("span", { cls: "sg-corner-label", text: "Phases" }, this.corner);
 		this.headerWrap.replaceChildren(paintHeader(layout, { ...paint, visible: this.visibleRange() }));
@@ -355,7 +376,7 @@ export class GanttBoard {
 
 	/** Smoothly change pixels-per-day, keeping `anchorDay` under screen x `anchorX` (relative to scroller). */
 	private animatePpd(target: number, anchorDay: number | null, anchorX: number) {
-		cancelAnimationFrame(this.zoomAnim);
+		window.cancelAnimationFrame(this.zoomAnim);
 		const from = this.ppd;
 		const t0 = performance.now();
 		const dur = 320;
@@ -368,9 +389,9 @@ export class GanttBoard {
 				const x = this.labelWidth() + (anchorDay - this.layout.viewStart) * this.ppd;
 				this.scroller.scrollLeft = x - anchorX;
 			} else if (this.zoom === "year") this.scroller.scrollLeft *= 1 - e;
-			if (t < 1) this.zoomAnim = requestAnimationFrame(step);
+			if (t < 1) this.zoomAnim = window.requestAnimationFrame(step);
 		};
-		this.zoomAnim = requestAnimationFrame(step);
+		this.zoomAnim = window.requestAnimationFrame(step);
 	}
 
 	private onWheel(e: WheelEvent) {
@@ -412,7 +433,7 @@ export class GanttBoard {
 		const prev = this.undoStack.pop();
 		if (!prev || !this.project) return;
 		this.redoStack.push(JSON.stringify(this.project));
-		this.project = JSON.parse(prev);
+		this.project = JSON.parse(prev) as Project;
 		this.afterHistory();
 	}
 
@@ -420,7 +441,7 @@ export class GanttBoard {
 		const next = this.redoStack.pop();
 		if (!next || !this.project) return;
 		this.undoStack.push(JSON.stringify(this.project));
-		this.project = JSON.parse(next);
+		this.project = JSON.parse(next) as Project;
 		this.afterHistory();
 	}
 
@@ -490,7 +511,7 @@ export class GanttBoard {
 		const jot = this.quickJournalText();
 		if (jot !== null) {
 			this.quick.classList.add("has-preview");
-			h("span", { cls: "sg-pv-type", html: `${icon("book", 12)}Journal` }, this.quickPreview);
+			h("span", { cls: "sg-pv-type", kids: [icon("book", 12), `Journal`] }, this.quickPreview);
 			h("span", { cls: "sg-pv-title", text: jot || "Write a quick note…" }, this.quickPreview);
 			h("span", { cls: "sg-pv-date", text: formatDay(toDay(this.host.today())) }, this.quickPreview);
 			return;
@@ -499,15 +520,15 @@ export class GanttBoard {
 		this.quick.classList.toggle("has-preview", !!r);
 		if (!r || !this.project) return;
 		const pv = this.quickPreview;
-		h("span", { cls: `sg-pv-type sg-chip-${r.type}`, html: `${icon(r.type, 12)}${ITEM_TYPE_LABELS[r.type]}` }, pv);
+		h("span", { cls: `sg-pv-type sg-chip-${r.type}`, kids: [icon(r.type, 12), `${ITEM_TYPE_LABELS[r.type]}`] }, pv);
 		h("span", { cls: "sg-pv-title", text: r.title || "Untitled" }, pv);
 		const s = toDay(r.start);
 		const e = r.end ? toDay(r.end) : s;
 		h("span", { cls: "sg-pv-date", text: isRangeType(r.type) ? `${formatRange(s, e)} · ${formatDuration(e - s + 1)}` : formatDay(s) }, pv);
 		if (r.type === "task" || r.type === "milestone") {
 			const phase = r.phase ? this.project.phases.find((p) => p.id === r.phase) : r.newPhase ? null : this.project.phases.find((p) => p.id === this.defaultPhase());
-			if (phase) h("span", { cls: "sg-pv-phase", html: `<i style="background:${this.theme.palette[phase.color]}"></i>${escapeHtml(phase.name)}` }, pv);
-			else if (r.newPhase) h("span", { cls: "sg-pv-phase is-new", html: `${icon("plus", 11)}New phase “${escapeHtml(r.newPhase)}”` }, pv);
+			if (phase) h("span", { cls: "sg-pv-phase", kids: [dot(this.theme.palette[phase.color]), phase.name] }, pv);
+			else if (r.newPhase) h("span", { cls: "sg-pv-phase is-new", kids: [icon("plus", 11), `New phase “${r.newPhase}”`] }, pv);
 		}
 		if (r.progress !== undefined) h("span", { cls: "sg-pv-date", text: `${r.progress}%` }, pv);
 		if (r.dateGuessed) h("span", { cls: "sg-pv-hint", text: "No date found — try “Mar”, “15 Feb” or “Jan–Mar”" }, pv);
@@ -634,7 +655,7 @@ export class GanttBoard {
 				d.currentDay = this.layout.dayAt(x);
 				this.paintGhost();
 				const [a, b] = [Math.min(d.anchorDay!, d.currentDay), Math.max(d.anchorDay!, d.currentDay)];
-				this.showTooltip(e, `<b>New ${d.laneKey === "locations" ? "location" : "task"}</b><span>${formatRange(a, b)} · ${formatDuration(b - a + 1)}</span>`);
+				this.showTooltip(e, [h("b", { text: `New ${d.laneKey === "locations" ? "location" : "task"}` }), span(`${formatRange(a, b)} · ${formatDuration(b - a + 1)}`)]);
 				return;
 			}
 			const item = d.item!;
@@ -657,10 +678,10 @@ export class GanttBoard {
 			if (isRangeType(item.type)) item.end = fromDay(en);
 			this.render();
 			const label = isRangeType(item.type) ? `${formatRange(s, en)} · ${formatDuration(en - s + 1)}` : formatDay(s);
-			const extra = d.kind !== "move" ? "" : e.shiftKey
-				? `<span class="sg-tt-ripple">${icon("push", 12)}Moving ${rippled} later item${rippled === 1 ? "" : "s"} too</span>`
-				: `<span class="sg-tt-hint">Hold Shift to move everything after it</span>`;
-			this.showTooltip(e, `<b>${escapeHtml(item.title)}</b><span>${label}</span>${extra}`);
+			const extra = d.kind !== "move" ? null : e.shiftKey
+				? h("span", { cls: "sg-tt-ripple", kids: [icon("push", 12), `Moving ${rippled} later item${rippled === 1 ? "" : "s"} too`] })
+				: span("Hold Shift to move everything after it", "sg-tt-hint");
+			this.showTooltip(e, [h("b", { text: item.title }), span(label), extra]);
 		});
 
 		const finish = (e: PointerEvent) => {
@@ -740,54 +761,65 @@ export class GanttBoard {
 		const itemEl = (e.target as Element).closest(".sg-item");
 		const p = itemEl && this.layout?.placed.find((x) => x.item.id === itemEl.getAttribute("data-id"));
 		if (!p) return this.hideTooltip();
-		this.showTooltip(e, this.tooltipHtml(p));
+		this.showTooltip(e, this.tooltipContent(p));
 	}
 
-	private tooltipHtml(p: Placed): string {
+	private tooltipContent(p: Placed): Kid[] {
 		const it = p.item;
 		const parent = p.parentId ? this.findItem(p.parentId) : undefined;
+		const b = (text: string) => h("b", { text });
 		if (p.kind === "ghost" && parent?.planB) {
-			return `<b>${escapeHtml(it.title)}</b><span>${formatRange(p.startDay, p.endDay)} · ${formatDuration(p.endDay - p.startDay + 1)}</span>`
-				+ `<span>Alternative for “${escapeHtml(parent.title)}”, decided on ${formatDay(toDay(parent.planB.by))}</span><span class="sg-tt-hint">Click to open Plan B</span>`;
+			return [
+				b(it.title),
+				span(`${formatRange(p.startDay, p.endDay)} · ${formatDuration(p.endDay - p.startDay + 1)}`),
+				span(`Alternative for “${parent.title}”, decided on ${formatDay(toDay(parent.planB.by))}`),
+				span("Click to open Plan B", "sg-tt-hint"),
+			];
 		}
 		if (p.kind === "decision" && parent?.planB) {
-			const due = p.state === "due";
-			return `<b>${due ? "Decision due" : "Decision point"} · ${formatDay(p.startDay)}</b>`
-				+ `<span>If “${escapeHtml(parent.title)}” isn't done by then → ${escapeHtml(parent.planB.title || "Plan B")}</span>`
-				+ `<span class="sg-tt-hint">Click to decide</span>`;
+			return [
+				b(`${p.state === "due" ? "Decision due" : "Decision point"} · ${formatDay(p.startDay)}`),
+				span(`If “${parent.title}” isn't done by then → ${parent.planB.title || "Plan B"}`),
+				span("Click to decide", "sg-tt-hint"),
+			];
 		}
 		if (p.kind === "entry") {
 			const face = p.mood ? MOODS[p.mood - 1].face + " " : "";
 			const text = it.title.length > 220 ? it.title.slice(0, 220) + "…" : it.title;
-			return `<b>${face}Journal · ${formatDay(p.startDay)}</b><span class="sg-tt-desc">${escapeHtml(text)}</span>`;
+			return [b(`${face}Journal · ${formatDay(p.startDay)}`), span(text, "sg-tt-desc")];
 		}
 		if (p.kind === "slot") {
 			const msg = p.state === "due" ? "Due now — click to write" : p.state === "missed" ? "Missed — click to catch up" : "Coming up";
-			return `<b>Check-in · ${formatDay(p.startDay)}</b><span>${msg}</span>`;
+			return [b(`Check-in · ${formatDay(p.startDay)}`), span(msg)];
 		}
-		const parts = [`<b>${escapeHtml(it.title)}</b>`];
+		const parts: Kid[] = [b(it.title)];
 		const type = ITEM_TYPE_LABELS[it.type];
 		const dates = isRangeType(it.type) ? `${formatRange(p.startDay, p.endDay)} · ${formatDuration(p.endDay - p.startDay + 1)}` : formatDay(p.startDay);
-		parts.push(`<span>${type} · ${dates}</span>`);
+		parts.push(span(`${type} · ${dates}`));
 		const phase = this.project?.phases.find((ph) => ph.id === it.phase);
-		if (phase) parts.push(`<span class="sg-tt-phase"><i style="background:${this.theme.palette[phase.color]}"></i>${escapeHtml(phase.name)}</span>`);
-		if (it.type === "task" && it.progress) parts.push(`<span class="sg-tt-progress"><i style="width:${it.progress}%"></i></span><span>${it.progress}% done</span>`);
+		if (phase) parts.push(h("span", { cls: "sg-tt-phase", kids: [dot(this.theme.palette[phase.color]), phase.name] }));
+		if (it.type === "task" && it.progress) {
+			const bar = h("i");
+			bar.setCssProps({ "--sg-progress": `${it.progress}%` });
+			parts.push(h("span", { cls: "sg-tt-progress", kids: [bar] }), span(`${it.progress}% done`));
+		}
 		if (isDone(it)) {
 			const face = it.review?.mood ? ` ${MOODS[it.review.mood - 1].face}` : "";
-			parts.push(`<span class="sg-tt-done">${icon("check", 12)}${escapeHtml(this.timingText(it))}${face}</span>`);
-			if (it.review?.text) parts.push(`<span class="sg-tt-desc">“${escapeHtml(it.review.text)}”</span>`);
+			parts.push(h("span", { cls: "sg-tt-done", kids: [icon("check", 12), `${this.timingText(it)}${face}`] }));
+			if (it.review?.text) parts.push(span(`“${it.review.text}”`, "sg-tt-desc"));
 		}
 		if (it.planB && !it.planB.status && !isDone(it))
-			parts.push(`<span class="sg-tt-planb">${icon("branch", 12)}Plan B from ${formatDay(toDay(it.planB.by))}: ${escapeHtml(it.planB.title || "set up")}</span>`);
-		if (it.dropped) parts.push(`<span class="sg-tt-hint">Replaced by Plan B</span>`);
-		if (it.description) parts.push(`<span class="sg-tt-desc">${escapeHtml(it.description)}</span>`);
-		if (it.note) parts.push(`<span class="sg-tt-note">${icon("note", 12)}${escapeHtml(it.note)}</span>`);
-		return parts.join("");
+			parts.push(h("span", { cls: "sg-tt-planb", kids: [icon("branch", 12), `Plan B from ${formatDay(toDay(it.planB.by))}: ${it.planB.title || "set up"}`] }));
+		if (it.dropped) parts.push(span("Replaced by Plan B", "sg-tt-hint"));
+		if (it.description) parts.push(span(it.description, "sg-tt-desc"));
+		if (it.note) parts.push(h("span", { cls: "sg-tt-note", kids: [icon("note", 12), it.note] }));
+		return parts;
 	}
 
-	private showTooltip(e: MouseEvent, html: string) {
+	private showTooltip(e: MouseEvent, kids: Kid[]) {
 		const t = this.tooltip;
-		t.innerHTML = html;
+		t.replaceChildren();
+		append(t, kids);
 		t.classList.add("is-visible");
 		const rect = this.root.getBoundingClientRect();
 		const w = t.offsetWidth;
@@ -796,7 +828,7 @@ export class GanttBoard {
 		let y = e.clientY - rect.top + 16;
 		if (x + w > rect.width - 8) x = e.clientX - rect.left - w - 14;
 		if (y + hgt > rect.height - 8) y = e.clientY - rect.top - hgt - 12;
-		t.style.transform = `translate(${Math.max(8, x)}px, ${Math.max(8, y)}px)`;
+		t.setCssProps({ "--sg-x": `${Math.max(8, x)}px`, "--sg-y": `${Math.max(8, y)}px` });
 	}
 
 	private hideTooltip() {
@@ -892,22 +924,22 @@ export class GanttBoard {
 		if (!p || !item) return this.closePanel();
 
 		const head = h("div", { cls: "sg-panel-head" }, panel);
-		h("span", { cls: `sg-panel-type sg-chip-${item.type}`, html: icon(item.type, 14) }, head);
+		h("span", { cls: `sg-panel-type sg-chip-${item.type}`, kids: [icon(item.type, 14)] }, head);
 		h("h3", { text: `Edit ${ITEM_TYPE_LABELS[item.type].toLowerCase()}` }, head);
-		const close = h("button", { cls: "sg-btn sg-icon-btn", html: icon("x"), attrs: { "aria-label": "Close" } }, head);
+		const close = h("button", { cls: "sg-btn sg-icon-btn", kids: [icon("x")], attrs: { "aria-label": "Close" } }, head);
 		close.addEventListener("click", () => this.select(null));
 
 		const form = h("div", { cls: "sg-form" }, panel);
 		const title = this.textField(form, "Title", item.title);
 		this.editor(title, () => (item.title = title.value));
 		title.addEventListener("keydown", (e) => e.key === "Enter" && title.blur());
-		if (focus === "title") setTimeout(() => {
+		if (focus === "title") window.setTimeout(() => {
 			title.focus();
 			if (/^New /.test(item.title)) title.select();
 		}, 60);
 
 		if (item.dropped) {
-			const banner = h("div", { cls: "sg-dropped-banner", html: `${icon("branch", 14)}<span>Replaced by its Plan B. It stays on the chart, faded, as a record of the change.</span>` }, form);
+			const banner = h("div", { cls: "sg-dropped-banner", kids: [icon("branch", 14), span(`Replaced by its Plan B. It stays on the chart, faded, as a record of the change.`)] }, form);
 			const restore = h("button", { cls: "sg-btn", text: "Restore" }, banner);
 			restore.addEventListener("click", () => {
 				this.snapshot();
@@ -923,7 +955,7 @@ export class GanttBoard {
 		const typeRow = this.fieldWrap(form, "Type");
 		const seg = h("div", { cls: "sg-type-seg" }, typeRow);
 		for (const t of ITEM_TYPES) {
-			const b = h("button", { cls: `sg-chip sg-chip-${t}${t === item.type ? " is-active" : ""}`, html: `${icon(t, 13)}<span>${ITEM_TYPE_LABELS[t]}</span>` }, seg);
+			const b = h("button", { cls: `sg-chip sg-chip-${t}${t === item.type ? " is-active" : ""}`, kids: [icon(t, 13), span(`${ITEM_TYPE_LABELS[t]}`)] }, seg);
 			b.addEventListener("click", () => {
 				if (t === item.type) return;
 				this.snapshot();
@@ -949,7 +981,7 @@ export class GanttBoard {
 			sel.addEventListener("change", () => {
 				if (sel.value === "__new") {
 					// Inline name field (Obsidian has no window.prompt).
-					sel.style.display = "none";
+					sel.classList.add("sg-hidden");
 					const input = h("input", { cls: "sg-input", attrs: { type: "text", placeholder: "Name the new phase, then press Enter" } }, wrap);
 					input.focus();
 					let finished = false;
@@ -1046,7 +1078,7 @@ export class GanttBoard {
 		note.addEventListener("input", fillSuggestions);
 		this.editor(note, () => (item.note = note.value.trim() || undefined));
 		if (this.host.openNote) {
-			const open = h("button", { cls: "sg-btn sg-icon-btn", html: icon("external"), attrs: { "aria-label": "Open note" } }, noteRow);
+			const open = h("button", { cls: "sg-btn sg-icon-btn", kids: [icon("external")], attrs: { "aria-label": "Open note" } }, noteRow);
 			open.addEventListener("click", () => item.note && this.host.openNote!(item.note));
 		}
 
@@ -1057,14 +1089,14 @@ export class GanttBoard {
 		this.editor(desc, () => (item.description = desc.value.trim() || undefined));
 
 		const foot = h("div", { cls: "sg-panel-foot" }, panel);
-		const dup = h("button", { cls: "sg-btn", html: `${icon("copy", 14)}<span>Duplicate</span>` }, foot);
+		const dup = h("button", { cls: "sg-btn", kids: [icon("copy", 14), span(`Duplicate`)] }, foot);
 		dup.addEventListener("click", () => {
 			this.snapshot();
 			const copy: GanttItem = { ...cloneProject({ items: [item] } as unknown as Project).items[0], id: newId(), title: `${item.title} (copy)` };
 			this.addItem(copy, true);
 		});
 		h("div", { cls: "sg-spacer" }, foot);
-		const del = h("button", { cls: "sg-btn sg-danger", html: `${icon("trash", 14)}<span>Delete</span>` }, foot);
+		const del = h("button", { cls: "sg-btn sg-danger", kids: [icon("trash", 14), span(`Delete`)] }, foot);
 		del.addEventListener("click", () => this.deleteItem(item.id));
 	}
 
@@ -1074,9 +1106,9 @@ export class GanttBoard {
 		panel.replaceChildren();
 		if (!p) return this.closePanel();
 		const head = h("div", { cls: "sg-panel-head" }, panel);
-		h("span", { cls: "sg-panel-type", html: icon("settings", 14) }, head);
+		h("span", { cls: "sg-panel-type", kids: [icon("settings", 14)] }, head);
 		h("h3", { text: "Project" }, head);
-		const close = h("button", { cls: "sg-btn sg-icon-btn", html: icon("x"), attrs: { "aria-label": "Close" } }, head);
+		const close = h("button", { cls: "sg-btn sg-icon-btn", kids: [icon("x")], attrs: { "aria-label": "Close" } }, head);
 		close.addEventListener("click", () => this.closePanel());
 
 		const form = h("div", { cls: "sg-form" }, panel);
@@ -1100,7 +1132,8 @@ export class GanttBoard {
 		const list = h("div", { cls: "sg-phase-list" }, form);
 		p.phases.forEach((ph, i) => {
 			const row = h("div", { cls: "sg-phase-row" }, list);
-			const sw = h("button", { cls: "sg-swatch", attrs: { "aria-label": "Change colour", style: `background:${this.theme.palette[ph.color]}` } }, row);
+			const sw = h("button", { cls: "sg-swatch", attrs: { "aria-label": "Change colour" } }, row);
+			sw.setCssProps({ "--sg-swatch": this.theme.palette[ph.color] });
 			sw.addEventListener("click", () => this.openColorMenu(sw, ph.color, (c) => {
 				this.snapshot();
 				ph.color = c;
@@ -1112,9 +1145,9 @@ export class GanttBoard {
 			this.editor(name, () => (ph.name = name.value));
 			const count = p.items.filter((it) => it.phase === ph.id).length;
 			h("span", { cls: "sg-phase-count", text: String(count), attrs: { title: `${count} items` } }, row);
-			const up = h("button", { cls: "sg-btn sg-icon-btn sg-mini", html: icon("up", 14), attrs: { "aria-label": "Move up" } }, row);
-			const down = h("button", { cls: "sg-btn sg-icon-btn sg-mini", html: icon("down", 14), attrs: { "aria-label": "Move down" } }, row);
-			const del = h("button", { cls: "sg-btn sg-icon-btn sg-mini", html: icon("trash", 14), attrs: { "aria-label": "Delete phase" } }, row);
+			const up = h("button", { cls: "sg-btn sg-icon-btn sg-mini", kids: [icon("up", 14)], attrs: { "aria-label": "Move up" } }, row);
+			const down = h("button", { cls: "sg-btn sg-icon-btn sg-mini", kids: [icon("down", 14)], attrs: { "aria-label": "Move down" } }, row);
+			const del = h("button", { cls: "sg-btn sg-icon-btn sg-mini", kids: [icon("trash", 14)], attrs: { "aria-label": "Delete phase" } }, row);
 			up.toggleAttribute("disabled", i === 0);
 			down.toggleAttribute("disabled", i === p.phases.length - 1);
 			const move = (dir: number) => {
@@ -1134,7 +1167,7 @@ export class GanttBoard {
 				if (count) this.host.notify(`Deleted phase “${ph.name}” — its ${count} items moved to “Other”. Ctrl+Z to undo.`);
 			});
 		});
-		const add = h("button", { cls: "sg-btn sg-add-phase", html: `${icon("plus", 14)}<span>Add phase</span>` }, form);
+		const add = h("button", { cls: "sg-btn sg-add-phase", kids: [icon("plus", 14), span(`Add phase`)] }, form);
 		add.addEventListener("click", () => {
 			this.snapshot();
 			addPhase(p, `Phase ${p.phases.length + 1}`);
@@ -1149,7 +1182,7 @@ export class GanttBoard {
 		h("div", { cls: "sg-section-title", text: "Quick add tips" }, form);
 		h("div", {
 			cls: "sg-tips",
-			html: [
+			kids: [
 				["Literature review Jan–Mar #lit", "task in a phase"],
 				["!Ethics form 15 Feb", "deadline"],
 				["*Chapter 2 done 20 Jan", "milestone"],
@@ -1157,7 +1190,7 @@ export class GanttBoard {
 				["@Fieldwork Lisbon Feb–Apr", "location"],
 				["Pilot 18 Jan for 4 weeks 30%", "duration & progress"],
 				["> Good meeting today", "journal note"],
-			].map(([code, what]) => `<div><code>${escapeHtml(code)}</code><span>${what}</span></div>`).join(""),
+			].map(([code, what]) => h("div", { kids: [h("code", { text: code }), span(what)] })),
 		}, form);
 	}
 
@@ -1207,14 +1240,14 @@ export class GanttBoard {
 		const phaseDone = !!phase && this.project!.items.filter((i) => i.phase === phase.id && !i.dropped && isCheckable(i)).every(isDone);
 		const colors = phase ? [this.theme.palette[phase.color], ...Object.values(this.theme.palette)] : Object.values(this.theme.palette);
 		confetti(this.root, x, y, colors, item.type !== "task" || phaseDone);
-		if (phaseDone) this.host.notify(`🎉 Every item in “${phase!.name}” is done!`);
+		if (phase && phaseDone) this.host.notify(`🎉 Every item in “${phase.name}” is done!`);
 	}
 
 	private buildDoneSection(form: El, item: GanttItem, focusReview: boolean) {
 		const done = isDone(item);
 		const box = h("div", { cls: `sg-done${done ? " is-done" : ""}` }, form);
 		const btn = h("button", {
-			cls: "sg-done-check", html: icon("check", 16),
+			cls: "sg-done-check", kids: [icon("check", 16)],
 			attrs: { role: "checkbox", "aria-checked": String(done), "aria-label": done ? "Mark as not done" : "Mark as done" },
 		}, box);
 		const txt = h("div", { cls: "sg-done-text" }, box);
@@ -1225,7 +1258,7 @@ export class GanttBoard {
 		if (!done) return;
 
 		const card = h("div", { cls: `sg-review${focusReview ? " is-fresh" : ""}` }, form);
-		h("div", { cls: "sg-review-title", html: `${icon("sparkle", 14)}<span>How did it go?</span>` }, card);
+		h("div", { cls: "sg-review-title", kids: [icon("sparkle", 14), span(`How did it go?`)] }, card);
 		const moods = h("div", { cls: "sg-moods" }, card);
 		const review = (item.review ??= {});
 		for (const m of MOODS) {
@@ -1247,7 +1280,7 @@ export class GanttBoard {
 		this.editor(date, () => {
 			if (/^\d{4}-\d{2}-\d{2}$/.test(date.value)) item.doneOn = date.value;
 		}, false);
-		if (focusReview) setTimeout(() => ta.focus(), 120);
+		if (focusReview) window.setTimeout(() => ta.focus(), 120);
 	}
 
 	// ─── Plan B ────────────────────────────────────────────────────────────
@@ -1255,7 +1288,10 @@ export class GanttBoard {
 	private buildPlanBSection(form: El, item: GanttItem, focus: boolean) {
 		const sec = h("div", { cls: "sg-planb" }, form);
 		if (!item.planB) {
-			const add = h("button", { cls: "sg-planb-add", html: `${icon("branch", 16)}<span><strong>Add a Plan B</strong><small>What happens if this doesn't work out?</small></span>` }, sec);
+			const add = h("button", {
+				cls: "sg-planb-add",
+				kids: [icon("branch", 16), h("span", { kids: [h("strong", { text: "Add a Plan B" }), h("small", { text: "What happens if this doesn't work out?" })] })],
+			}, sec);
 			add.addEventListener("click", () => {
 				this.snapshot();
 				item.planB = { by: item.end ?? item.start, title: "" };
@@ -1270,7 +1306,7 @@ export class GanttBoard {
 		sec.classList.add("has-plan");
 		if (due) sec.classList.add("is-due");
 		const head = h("div", { cls: "sg-planb-head" }, sec);
-		h("span", { cls: "sg-planb-icon", html: icon("branch", 14) }, head);
+		h("span", { cls: "sg-planb-icon", kids: [icon("branch", 14)] }, head);
 		h("strong", { text: "Plan B" }, head);
 		const status = pb.status === "dismissed" ? "Not needed" : due ? "Decision due" : `Decide in ${toDay(pb.by) - today} days`;
 		h("span", { cls: `sg-pill${due ? " is-warn" : ""}`, text: status }, head);
@@ -1285,7 +1321,7 @@ export class GanttBoard {
 		const title = h("input", { cls: "sg-input", attrs: { type: "text", placeholder: "e.g. use a public dataset instead" } }, thenRow);
 		title.value = pb.title;
 		this.editor(title, () => (pb.title = title.value));
-		if (focus) setTimeout(() => (pb.title ? by : title).focus(), 120);
+		if (focus) window.setTimeout(() => (pb.title ? by : title).focus(), 120);
 
 		const dates = h("div", { cls: "sg-row2" }, sec);
 		const ps = h("input", { cls: "sg-input", attrs: { type: "date" } }, this.fieldWrap(dates, "Plan B from (optional)"));
@@ -1316,7 +1352,7 @@ export class GanttBoard {
 			const rearm = h("button", { cls: "sg-btn", text: "Keep it as a backup again" }, actions);
 			rearm.addEventListener("click", () => this.mutate(() => delete pb.status, true));
 		} else {
-			const sw = h("button", { cls: "sg-btn sg-primary", html: `${icon("branch", 14)}<span>Switch to Plan B</span>` }, actions);
+			const sw = h("button", { cls: "sg-btn sg-primary", kids: [icon("branch", 14), span(`Switch to Plan B`)] }, actions);
 			sw.addEventListener("click", () => this.switchToPlanB(item));
 			if (due) {
 				const snooze = h("button", { cls: "sg-btn", text: "Still on track · ask in 2 weeks" }, actions);
@@ -1324,7 +1360,7 @@ export class GanttBoard {
 			}
 		}
 		h("div", { cls: "sg-spacer" }, actions);
-		const rm = h("button", { cls: "sg-btn sg-icon-btn", html: icon("trash", 14), attrs: { "aria-label": "Remove Plan B" } }, actions);
+		const rm = h("button", { cls: "sg-btn sg-icon-btn", kids: [icon("trash", 14)], attrs: { "aria-label": "Remove Plan B" } }, actions);
 		rm.addEventListener("click", () => this.mutate(() => delete item.planB, true));
 	}
 
@@ -1400,7 +1436,7 @@ export class GanttBoard {
 		this.panel.classList.add("is-open");
 		this.panel.setAttribute("aria-hidden", "false");
 		this.render();
-		setTimeout(() => {
+		window.setTimeout(() => {
 			if (entry) this.panel.querySelector(`[data-entry="${entry.id}"]`)?.scrollIntoView({ block: "center", behavior: "smooth" });
 			else this.panel.querySelector<HTMLTextAreaElement>(".sg-composer textarea")?.focus();
 		}, 80);
@@ -1415,9 +1451,9 @@ export class GanttBoard {
 		const today = toDay(this.host.today());
 
 		const head = h("div", { cls: "sg-panel-head" }, panel);
-		h("span", { cls: "sg-panel-type", html: icon("book", 14) }, head);
+		h("span", { cls: "sg-panel-type", kids: [icon("book", 14)] }, head);
 		h("h3", { text: "Journal" }, head);
-		const close = h("button", { cls: "sg-btn sg-icon-btn", html: icon("x"), attrs: { "aria-label": "Close" } }, head);
+		const close = h("button", { cls: "sg-btn sg-icon-btn", kids: [icon("x")], attrs: { "aria-label": "Close" } }, head);
 		close.addEventListener("click", () => this.closePanel());
 
 		const form = h("div", { cls: "sg-form" }, panel);
@@ -1493,7 +1529,7 @@ export class GanttBoard {
 		].sort((a, b) => b.date.localeCompare(a.date));
 		const feed = h("div", { cls: "sg-feed" }, form);
 		if (!rows.length) {
-			h("div", { cls: "sg-feed-empty", html: `${icon("book", 22)}<span>Your project story starts here. Write a few lines after a meeting, a good day or a bad one. Finished items and how they went show up here too.</span>` }, feed);
+			h("div", { cls: "sg-feed-empty", kids: [icon("book", 22), span(`Your project story starts here. Write a few lines after a meeting, a good day or a bad one. Finished items and how they went show up here too.`)] }, feed);
 		}
 		let month = "";
 		for (const r of rows) {
@@ -1504,11 +1540,11 @@ export class GanttBoard {
 				h("div", { cls: "sg-feed-month", text: key }, feed);
 			}
 			const card = h("div", { cls: `sg-feed-card sg-feed-${r.kind}${r.id === this.journalFocusId ? " is-focus" : ""}`, attrs: { "data-entry": r.id } }, feed);
-			if (r.mood) card.style.setProperty("--sg-mood", MOOD_COLORS[r.mood]);
+			if (r.mood) card.setCssProps({ "--sg-mood": MOOD_COLORS[r.mood] });
 			const meta = h("div", { cls: "sg-feed-meta" }, card);
 			h("span", { cls: "sg-feed-date", text: formatDay(toDay(r.date), false) }, meta);
 			if (r.mood) h("span", { cls: "sg-feed-mood", text: MOODS[r.mood - 1].face, attrs: { title: MOODS[r.mood - 1].label } }, meta);
-			if (r.kind === "review") h("span", { cls: "sg-feed-tag", html: `${icon("check", 11)}${escapeHtml(r.title!)}` }, meta);
+			if (r.kind === "review") h("span", { cls: "sg-feed-tag", kids: [icon("check", 11), `${r.title!}`] }, meta);
 			h("div", { cls: "sg-feed-text", text: r.text || (r.kind === "review" ? "Ticked off" : "") }, card);
 			card.addEventListener("click", () => {
 				if (r.kind === "review") return this.select(r.id, true, "review");
@@ -1518,7 +1554,7 @@ export class GanttBoard {
 				this.panel.querySelector<HTMLTextAreaElement>(".sg-composer textarea")?.focus();
 			});
 			if (r.kind === "entry") {
-				const del = h("button", { cls: "sg-feed-del", html: icon("trash", 13), attrs: { "aria-label": "Delete entry" } }, card);
+				const del = h("button", { cls: "sg-feed-del", kids: [icon("trash", 13)], attrs: { "aria-label": "Delete entry" } }, card);
 				del.addEventListener("click", (ev) => {
 					ev.stopPropagation();
 					this.mutate(() => (p.journal = p.journal!.filter((x) => x.id !== r.id)), true);
@@ -1528,7 +1564,7 @@ export class GanttBoard {
 		}
 
 		const pfoot = h("div", { cls: "sg-panel-foot" }, panel);
-		const copy = h("button", { cls: "sg-btn", html: `${icon("note", 14)}<span>Save as note</span>` }, pfoot);
+		const copy = h("button", { cls: "sg-btn", kids: [icon("note", 14), span(`Save as note`)] }, pfoot);
 		copy.addEventListener("click", () => void this.exportJournal());
 		h("div", { cls: "sg-spacer" }, pfoot);
 		h("span", { cls: "sg-hint-inline", text: `${rows.length} entr${rows.length === 1 ? "y" : "ies"}` }, pfoot);
@@ -1598,13 +1634,18 @@ export class GanttBoard {
 		const pct = overallProgress(p);
 		const r = 9, c = 2 * Math.PI * r;
 		const ring = h("div", { cls: "sg-ring", attrs: { title: `${pct}% of the plan done` } }, this.stats);
-		ring.innerHTML = `<svg width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="${r}" fill="none" stroke="var(--background-modifier-border)" stroke-width="3"/>`
-			+ `<circle cx="12" cy="12" r="${r}" fill="none" stroke="var(--interactive-accent)" stroke-width="3" stroke-linecap="round" stroke-dasharray="${(c * pct) / 100} ${c}" transform="rotate(-90 12 12)"/></svg><span>${pct}%</span>`;
+		const svg = svgEl("svg", { width: 24, height: 24, viewBox: "0 0 24 24" });
+		svgEl("circle", { cx: 12, cy: 12, r, fill: "none", stroke: "var(--background-modifier-border)", "stroke-width": 3 }, svg);
+		svgEl("circle", {
+			cx: 12, cy: 12, r, fill: "none", stroke: "var(--interactive-accent)", "stroke-width": 3, "stroke-linecap": "round",
+			"stroke-dasharray": `${(c * pct) / 100} ${c}`, transform: "rotate(-90 12 12)",
+		}, svg);
+		append(ring, [svg, span(`${pct}%`)]);
 		const next = nextDeadline(p, toDay(this.host.today()));
 		if (next) {
 			const chip = h("button", {
 				cls: `sg-countdown${next.days <= 14 ? " is-soon" : ""}`,
-				html: `${icon("deadline", 13)}<span>${escapeHtml(next.item.title)}</span><b>${next.days === 0 ? "today" : next.days === 1 ? "tomorrow" : `${next.days} days`}</b>`,
+				kids: [icon("deadline", 13), span(next.item.title), h("b", { text: next.days === 0 ? "today" : next.days === 1 ? "tomorrow" : `${next.days} days` })],
 				attrs: { title: `Next deadline: ${formatDay(toDay(next.item.start))}` },
 			}, this.stats);
 			chip.addEventListener("click", () => {
@@ -1628,19 +1669,19 @@ export class GanttBoard {
 		const n = list[this.nudgeIndex];
 		const card = h("div", { cls: `sg-nudge sg-nudge-${n.kind}` }, bar);
 		const iconName = n.kind === "decision" ? "branch" : n.kind === "checkin" ? "book" : n.kind === "reached" ? "party" : "deadline";
-		h("span", { cls: "sg-nudge-icon", html: icon(iconName, 16) }, card);
+		h("span", { cls: "sg-nudge-icon", kids: [icon(iconName, 16)] }, card);
 		const text = h("div", { cls: "sg-nudge-text" }, card);
 		const actions = h("div", { cls: "sg-nudge-actions" }, card);
-		const act = (label: string, fn: () => void, primary = false) => {
-			const b = h("button", { cls: `sg-btn${primary ? " sg-primary" : ""}`, html: label }, actions);
+		const act = (label: Kid[], fn: () => void, primary = false) => {
+			const b = h("button", { cls: `sg-btn${primary ? " sg-primary" : ""}`, kids: label }, actions);
 			b.addEventListener("click", fn);
 		};
 		this.fillNudge(n, text, act, actions);
 		if (list.length > 1) {
 			const pager = h("div", { cls: "sg-pager" }, card);
-			const prev = h("button", { cls: "sg-btn sg-icon-btn sg-mini", html: icon("chevronLeft", 14), attrs: { "aria-label": "Previous" } }, pager);
+			const prev = h("button", { cls: "sg-btn sg-icon-btn sg-mini", kids: [icon("chevronLeft", 14)], attrs: { "aria-label": "Previous" } }, pager);
 			h("span", { text: `${this.nudgeIndex + 1}/${list.length}` }, pager);
-			const nextB = h("button", { cls: "sg-btn sg-icon-btn sg-mini", html: icon("chevronRight", 14), attrs: { "aria-label": "Next" } }, pager);
+			const nextB = h("button", { cls: "sg-btn sg-icon-btn sg-mini", kids: [icon("chevronRight", 14)], attrs: { "aria-label": "Next" } }, pager);
 			prev.addEventListener("click", () => {
 				this.nudgeIndex = (this.nudgeIndex - 1 + list.length) % list.length;
 				this.renderNudges();
@@ -1650,14 +1691,14 @@ export class GanttBoard {
 				this.renderNudges();
 			});
 		}
-		const x = h("button", { cls: "sg-btn sg-icon-btn sg-mini", html: icon("x", 14), attrs: { "aria-label": "Dismiss" } }, card);
+		const x = h("button", { cls: "sg-btn sg-icon-btn sg-mini", kids: [icon("x", 14)], attrs: { "aria-label": "Dismiss" } }, card);
 		x.addEventListener("click", () => {
 			this.dismissedNudges.add(n.key);
 			this.renderNudges();
 		});
 	}
 
-	private fillNudge(n: Nudge, text: El, act: (label: string, fn: () => void, primary?: boolean) => void, actions: El) {
+	private fillNudge(n: Nudge, text: El, act: (label: Kid[], fn: () => void, primary?: boolean) => void, actions: El) {
 		const t = (strong: string, rest: string) => {
 			h("strong", { text: strong }, text);
 			h("span", { text: rest }, text);
@@ -1665,8 +1706,8 @@ export class GanttBoard {
 		if (n.kind === "decision") {
 			const pb = n.item.planB!;
 			t("Decision time", `“${n.item.title}” isn't done and its Plan B date (${formatDay(toDay(pb.by), false)}) has arrived.`);
-			act(`${icon("branch", 14)}<span>Switch to: ${escapeHtml(pb.title || "Plan B")}</span>`, () => this.switchToPlanB(n.item), true);
-			act("Still on track", () => this.snoozeDecision(n.item));
+			act([icon("branch", 14), span(`Switch to: ${pb.title || "Plan B"}`)], () => this.switchToPlanB(n.item), true);
+			act(["Still on track"], () => this.snoozeDecision(n.item));
 		} else if (n.kind === "checkin") {
 			const p = this.project!;
 			t(`Time for your ${p.checkin === "weekly" ? "weekly" : p.checkin === "fortnightly" ? "fortnightly" : "monthly"} check-in`, "How's it going?");
@@ -1680,11 +1721,11 @@ export class GanttBoard {
 		} else if (n.kind === "reached") {
 			const what = n.item.type === "task" ? "finish" : n.item.type === "deadline" ? "make" : "reach";
 			t(`Did you ${what} “${n.item.title}”?`, `It was planned ${n.daysAgo === 1 ? "yesterday" : `${n.daysAgo} days ago`}.`);
-			act(`${icon("check", 14)}<span>Yes!</span>`, () => this.toggleDone(n.item), true);
-			act("Not yet, move it", () => this.select(n.item.id, true, n.item.planB ? "planb" : "title"));
+			act([icon("check", 14), span("Yes!")], () => this.toggleDone(n.item), true);
+			act(["Not yet, move it"], () => this.select(n.item.id, true, n.item.planB ? "planb" : "title"));
 		} else {
 			t(`“${n.item.title}”`, n.days === 0 ? "is due today." : `is due in ${n.days} day${n.days === 1 ? "" : "s"} (${formatDay(toDay(n.item.start), false)}).`);
-			act("Show", () => {
+			act(["Show"], () => {
 				this.select(n.item.id, true);
 				this.revealItem(n.item.id);
 			});
@@ -1736,8 +1777,7 @@ export class GanttBoard {
 		const r = anchor.getBoundingClientRect();
 		const root = this.root.getBoundingClientRect();
 		const left = Math.min(r.left - root.left, root.width - menu.offsetWidth - 8);
-		menu.style.left = `${Math.max(8, left)}px`;
-		menu.style.top = `${r.bottom - root.top + 6}px`;
+		menu.setCssProps({ "--sg-menu-x": `${Math.max(8, left)}px`, "--sg-menu-y": `${r.bottom - root.top + 6}px` });
 		this.menu = menu;
 		return menu;
 	}
@@ -1747,8 +1787,8 @@ export class GanttBoard {
 		this.menu = null;
 	}
 
-	private menuItem(menu: El, html: string, onClick: () => void, cls = "") {
-		const b = h("button", { cls: `sg-menu-item ${cls}`, html }, menu);
+	private menuItem(menu: El, kids: Kid[], onClick: () => void, cls = "") {
+		const b = h("button", { cls: `sg-menu-item ${cls}`, kids }, menu);
 		b.addEventListener("click", () => {
 			this.closeMenu();
 			onClick();
@@ -1760,17 +1800,18 @@ export class GanttBoard {
 			const projects = this.host.listProjects();
 			if (projects.length) h("div", { cls: "sg-menu-label", text: "Projects" }, menu);
 			for (const pr of projects)
-				this.menuItem(menu, `${icon("gantt", 14)}<span>${escapeHtml(pr.title)}</span>`, () => this.host.switchProject(pr.id), pr.id === this.projectId ? "is-active" : "");
+				this.menuItem(menu, [icon("gantt", 14), span(pr.title)], () => this.host.switchProject(pr.id), pr.id === this.projectId ? "is-active" : "");
 			h("div", { cls: "sg-menu-sep" }, menu);
-			for (const t of TEMPLATES) this.menuItem(menu, `${icon("plus", 14)}<span>New: ${t.name}</span>`, () => this.host.createProject(t.id));
+			for (const t of TEMPLATES) this.menuItem(menu, [icon("plus", 14), span(`New: ${t.name}`)], () => this.host.createProject(t.id));
 		});
 	}
 
 	private openExportMenu(anchor: El) {
 		this.popMenu(anchor, (menu) => {
 			h("div", { cls: "sg-menu-label", text: "Export for print & reports" }, menu);
-			this.menuItem(menu, `${icon("download", 14)}<span>PNG image <small>high resolution</small></span>`, () => this.exportAs("png"));
-			this.menuItem(menu, `${icon("download", 14)}<span>SVG <small>vector, for Word / LaTeX</small></span>`, () => this.exportAs("svg"));
+			const label = (main: string, note: string) => h("span", { kids: [`${main} `, h("small", { text: note })] });
+			this.menuItem(menu, [icon("download", 14), label("PNG image", "high resolution")], () => void this.exportAs("png"));
+			this.menuItem(menu, [icon("download", 14), label("SVG", "vector, for Word / LaTeX")], () => void this.exportAs("svg"));
 		});
 	}
 
@@ -1778,7 +1819,8 @@ export class GanttBoard {
 		this.popMenu(anchor, (menu) => {
 			menu.classList.add("sg-color-menu");
 			for (const c of COLOR_ORDER) {
-				const b = h("button", { cls: `sg-swatch${c === current ? " is-active" : ""}`, attrs: { style: `background:${this.theme.palette[c]}`, "aria-label": c } }, menu);
+				const b = h("button", { cls: `sg-swatch${c === current ? " is-active" : ""}`, attrs: { "aria-label": c } }, menu);
+				b.setCssProps({ "--sg-swatch": this.theme.palette[c] });
 				b.addEventListener("click", () => {
 					this.closeMenu();
 					onPick(c);
@@ -1805,8 +1847,3 @@ function hash(s: string): number {
 	for (let i = 0; i < s.length; i++) x = (x * 31 + s.charCodeAt(i)) | 0;
 	return Math.abs(x);
 }
-
-function escapeHtml(s: string): string {
-	return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
-}
-

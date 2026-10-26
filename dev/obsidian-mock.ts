@@ -1,20 +1,8 @@
 /* A minimal in-memory stand-in for the Obsidian API, enough to run the plugin end to end in a browser. */
-import * as yaml from "js-yaml";
+import { parse as parseYamlText, stringify as stringifyYamlText } from "yaml";
+import "./obsidian-dom";
 
 type Cb = (...args: any[]) => void;
-
-// Obsidian adds these helpers to every element.
-const proto = HTMLElement.prototype as any;
-proto.empty = function () { this.replaceChildren(); };
-proto.addClass = function (...c: string[]) { this.classList.add(...c); };
-proto.createEl = function (tag: string, o: { cls?: string; text?: string } = {}) {
-	const el = document.createElement(tag);
-	if (o.cls) el.className = o.cls;
-	if (o.text) el.textContent = o.text;
-	this.appendChild(el);
-	return el;
-};
-proto.createDiv = function (o: { cls?: string; text?: string } = {}) { return this.createEl("div", o); };
 
 export const notices: string[] = [];
 export class Notice { constructor(m: string) { notices.push(m); } }
@@ -53,7 +41,7 @@ export class MetadataCache {
 	getFileCache(f: TFile) {
 		const s = this.vault.data.get(f.path);
 		const m = typeof s === "string" ? /^---\n([\s\S]*?)\n---/.exec(s) : null;
-		return m ? { frontmatter: yaml.load(m[1]) as Record<string, unknown> } : {};
+		return m ? { frontmatter: parseYamlText(m[1]) as Record<string, unknown> } : {};
 	}
 }
 
@@ -117,8 +105,8 @@ export class PluginSettingTab { constructor(public app: App, public plugin: Plug
 export class Setting {}
 
 export function addIcon() {}
-export const parseYaml = (s: string) => yaml.load(s);
-export const stringifyYaml = (o: unknown) => yaml.dump(o, { lineWidth: -1 });
+export const parseYaml = (s: string): unknown => parseYamlText(s);
+export const stringifyYaml = (o: unknown) => stringifyYamlText(o, { lineWidth: 0 });
 export function normalizePath(p: string) { return p.replace(/\/+/g, "/").replace(/^\/|\/$/g, ""); }
 export function debounce(fn: Cb, ms: number) {
 	let t: any;

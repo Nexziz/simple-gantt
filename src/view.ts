@@ -39,11 +39,11 @@ export class GanttView extends ItemView {
 			save: (p) => this.queueSave(p),
 			today: () => todayIso(),
 			listProjects: () => this.plugin.listProjects().map((f) => ({ id: f.path, title: this.titleOf(f) })),
-			switchProject: (path) => this.openPath(path),
-			createProject: (t) => this.createProject(t),
+			switchProject: (path) => void this.openPath(path),
+			createProject: (t) => void this.createProject(t),
 			exportFile: (name, data) => this.exportFile(name, data),
 			notify: (m) => new Notice(m),
-			openNote: (link) => this.app.workspace.openLinkText(link, this.file?.path ?? "", "tab"),
+			openNote: (link) => void this.app.workspace.openLinkText(link, this.file?.path ?? "", "tab"),
 			suggestNotes: (q) => this.suggestNotes(q),
 		});
 
@@ -102,7 +102,7 @@ export class GanttView extends ItemView {
 		let raw: unknown = {};
 		try {
 			raw = yaml ? parseYaml(yaml) : {};
-		} catch (e) {
+		} catch {
 			new Notice(`Simple Gantt: could not read the data in “${file.basename}”. Check the YAML block.`);
 			return;
 		}

@@ -25,7 +25,7 @@ function text(parent: Element, x: number, y: number, content: string, attrs: Att
 
 /** Text width measurement backed by a canvas, shared by layout and truncation. */
 export function makeMeasure(font: string): Measure {
-	const ctx = document.createElement("canvas").getContext("2d")!;
+	const ctx = createEl("canvas").getContext("2d")!;
 	const cache = new Map<string, number>();
 	return (s, weight = 500, size = G.fontSize) => {
 		const key = `${weight}|${size}|${s}`;
@@ -557,7 +557,7 @@ export async function svgToPng(svg: SVGSVGElement, scale = 2): Promise<Blob> {
 		img.onerror = () => reject(new Error("Could not render image"));
 		img.src = src;
 	});
-	const canvas = document.createElement("canvas");
+	const canvas = createEl("canvas");
 	canvas.width = Math.round(w * scale);
 	canvas.height = Math.round(h * scale);
 	const ctx = canvas.getContext("2d")!;

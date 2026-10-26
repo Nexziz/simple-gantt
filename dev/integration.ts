@@ -75,7 +75,7 @@ function check(cond: unknown, msg: string) {
 		const shift = (Date.parse(after.start) - Date.parse(startBefore)) / 864e5;
 		check(shift === 14, `dragging a bar moves it by whole days (moved ${shift} days)`);
 		await sleep(600);
-		check((await app.vault.read(file)).includes(`start: '${after.start}'`), "dragged dates are saved to the note");
+		check(new RegExp(`start: '?${after.start}'?`).test(await app.vault.read(file)), "dragged dates are saved to the note");
 
 		// Export
 		await view().board.exportAs("svg");
@@ -105,7 +105,7 @@ function check(cond: unknown, msg: string) {
 		// Quick journal line
 		type("> Great supervisor meeting today");
 		await sleep(600);
-		check(/journal:\n\s+- date: '\d{4}-\d{2}-\d{2}'\n\s+text: Great supervisor meeting today/.test(await read()), "'>' in quick add writes a journal entry");
+		check(/journal:\n\s+- date: '?\d{4}-\d{2}-\d{2}'?\n\s+text: Great supervisor meeting today/.test(await read()), "'>' in quick add writes a journal entry");
 
 		// Tick a task done with Space, then write how it went
 		const task = proj().items.find((i: any) => i.type === "task");

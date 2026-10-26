@@ -1,6 +1,6 @@
 import { fromDay, isIsoDate, toDay } from "./dates";
 import {
-	CHECKIN_LABELS, COLOR_ORDER, CheckIn, ColorName, GanttItem, ITEM_TYPES, ItemType, JournalEntry, Mood, Phase, Project,
+	CHECKIN_LABELS, COLOR_ORDER, CheckIn, ColorName, GanttItem, ITEM_TYPES, ItemType, JournalEntry, Mood, Project,
 	isCheckable, isRangeType, newId, slugify,
 } from "./types";
 
@@ -96,7 +96,7 @@ export function normalizeProject(raw: unknown, fallbackTitle = "Untitled project
 		const color = (COLOR_ORDER as string[]).includes(String(o.color))
 			? (o.color as ColorName)
 			: COLOR_ORDER[project.phases.length % COLOR_ORDER.length];
-		project.phases.push({ id, name, color } as Phase);
+		project.phases.push({ id, name, color });
 	}
 
 	const itemIds = new Set<string>();

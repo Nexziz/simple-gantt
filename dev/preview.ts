@@ -1,3 +1,4 @@
+import "./obsidian-dom";
 import { DARK_THEME, PRINT_THEME } from "../src/core/theme";
 import { renderExportSvg } from "../src/core/render";
 import { toDay } from "../src/core/dates";
@@ -22,9 +23,9 @@ if (mode === "export") {
 	document.body.innerHTML = `
 	<div class="mock-app">
 		<div class="mock-ribbon">
-			<span>${icon("note", 18)}</span><span>${icon("today", 18)}</span>
+			<span>${icon("note", 18).outerHTML}</span><span>${icon("today", 18).outerHTML}</span>
 			<span class="is-active" title="Open Simple Gantt"><svg viewBox="0 0 100 100" width="18" height="18">${RIBBON_ICON_SVG}</svg></span>
-			<span>${icon("settings", 18)}</span>
+			<span>${icon("settings", 18).outerHTML}</span>
 		</div>
 		<div class="mock-main">
 			<div class="mock-tabs"><div class="mock-tab"><svg viewBox="0 0 100 100" width="14" height="14">${RIBBON_ICON_SVG}</svg>Simple Gantt</div></div>

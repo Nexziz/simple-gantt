@@ -161,5 +161,5 @@ export function addPhase(project: Project, name: string): Phase {
 }
 
 export function cloneProject(project: Project): Project {
-	return JSON.parse(JSON.stringify(project));
+	return structuredClone(project);
 }
