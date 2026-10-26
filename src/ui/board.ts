@@ -1038,7 +1038,7 @@ export class GanttBoard {
 			fill: "none", stroke: this.theme.accent, "stroke-width": 2, "stroke-dasharray": "5 4",
 		}, g);
 		svgEl("circle", { cx: x, cy: y, r: 4, fill: this.theme.accent }, g);
-		const target = valid ? this.findItem(targetId!) : undefined;
+		const target = valid ? this.findItem(targetId) : undefined;
 		this.showTooltip(e, target
 			? [h("b", { text: "Link" }), span(`“${target.title}” starts after “${src.item.title}”`)]
 			: [h("b", { text: "Link to…" }), span(targetId && targetId !== src.item.id ? "That would make a loop" : "Drop on the item that comes next", "sg-tt-hint")]);

@@ -1,6 +1,6 @@
 {
   "name": "simple-gantt",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "A simple, beautiful Gantt chart for planning projects in Obsidian.",
   "main": "main.js",
   "scripts": {
