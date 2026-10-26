@@ -1,5 +1,5 @@
 import { MONTHS_LONG, MONTHS_SHORT, dayFromYmd, formatDay, monthEnd, toDay, weekday, ymd } from "./dates";
-import { Lane, Layout, Measure, Placed, computeLayout } from "./layout";
+import { Lane, Layout, MILESTONE_BADGE_PAD, Measure, Placed, computeLayout } from "./layout";
 import { PRINT_THEME, Theme, inkOnFill } from "./theme";
 import { earliestAfter } from "./links";
 import { isOn } from "./features";
@@ -146,6 +146,20 @@ export function paintHeader(layout: Layout, o: PaintOptions): SVGSVGElement {
 	}
 
 	svgEl("line", { x1: 0, x2: layout.width, y1: layout.headerH - 0.5, y2: layout.headerH - 0.5, stroke: theme.axis }, svg);
+
+	// Milestones are marked on the date ruler too, so they're visible even when rows are folded or scrolled away.
+	for (const p of layout.placed) {
+		if (p.kind !== "item" || p.item.type !== "milestone" || p.item.dropped) continue;
+		const x = layout.xOf(p.startDay) + layout.pxPerDay / 2;
+		const y = layout.headerH - 0.5;
+		const r = 5;
+		const fill = p.color ? theme.palette[p.color] : theme.inkSecondary;
+		const m = svgEl("path", {
+			d: `M${x},${y - r} L${x + r},${y} L${x},${y + r} L${x - r},${y} Z`,
+			fill, stroke: theme.surface, "stroke-width": 1.5, "stroke-linejoin": "round", class: "sg-ruler-milestone",
+		}, svg);
+		svgEl("title", {}, m).textContent = `${p.item.title} · ${formatDay(p.startDay)}`;
+	}
 
 	if (o.today != null && o.today >= layout.viewStart && o.today <= layout.viewEnd) {
 		const x = layout.xOf(o.today) + layout.pxPerDay / 2;
@@ -416,7 +430,9 @@ function paintItem(parent: Element, p: Placed, layout: Layout, o: PaintOptions, 
 	} else {
 		const cx = (p.x0 + p.x1) / 2;
 		if (it.type === "milestone") {
-			const r = 7.5;
+			const r = 8.5;
+			// A soft glow ring makes milestones stand out from bars and key dates.
+			if (!p.lane.collapsed) svgEl("circle", { cx, cy: p.cy, r: 14, fill: color, opacity: theme.dark ? 0.2 : 0.14, "pointer-events": "none", class: "sg-glow" }, g);
 			svgEl("path", {
 				d: `M${cx},${p.cy - r} L${cx + r},${p.cy} L${cx},${p.cy + r} L${cx - r},${p.cy} Z`,
 				fill: p.lane.collapsed ? theme.surface : color, stroke: p.lane.collapsed ? color : theme.surface,
@@ -433,7 +449,8 @@ function paintItem(parent: Element, p: Placed, layout: Layout, o: PaintOptions, 
 			}, g);
 		}
 		svgEl("rect", { x: cx - 10, y: p.cy - 11, width: 20, height: 22, fill: "transparent", "data-part": "body", class: "sg-hit" }, g);
-		text(g, p.labelX, p.cy, p.label, { ...labelAttrs, ...halo(theme), fill: theme.ink });
+		if (it.type === "milestone" && p.label) milestoneBadge(g, p, color, theme, labelAttrs);
+		else text(g, p.labelX, p.cy, p.label, { ...labelAttrs, ...halo(theme), fill: theme.ink });
 	}
 }
 
@@ -446,36 +463,81 @@ function paintLinks(svg: SVGSVGElement, layout: Layout, o: PaintOptions) {
 		for (const id of succ.item.after ?? []) {
 			const pred = byId.get(id);
 			if (!pred || pred.item.dropped || succ.item.dropped) continue;
+			const pts = routeLink(pred, succ, layout);
+			if (!pts) continue;
 			const bad = succ.startDay < earliestAfter(pred.item, succ.item);
 			const color = bad ? theme.deadline : theme.inkMuted;
-			const d = linkPath(pred.x1 + 1, pred.cy, succ.x0 - 2, succ.cy, layout.g.rowPitch);
-			// Links to or from a deadline duplicate its dashed rule: keep them hidden until hovered (interactive only).
-			const quiet = !bad && !!o.interactive && (pred.item.type === "deadline" || succ.item.type === "deadline");
+			// Links to or from a deadline duplicate its dashed rule: on screen they show on hover, on paper not at all.
+			const touchesDeadline = pred.item.type === "deadline" || succ.item.type === "deadline";
+			if (touchesDeadline && !bad && !o.interactive) continue;
+			const quiet = touchesDeadline && !bad;
 			const link = svgEl("g", { class: `sg-link${bad ? " is-bad" : ""}${quiet ? " is-quiet" : ""}`, "data-link": `${pred.item.id} ${succ.item.id}` }, g);
-			const attrs = { stroke: color, "stroke-linecap": "round", "stroke-linejoin": "round", opacity: bad ? 0.9 : 0.5 };
-			svgEl("path", { d, ...attrs, "stroke-width": bad ? 1.6 : 1.4, class: "sg-link-line" }, link);
-			// A small open chevron reads lighter than a filled triangle.
-			const x = succ.x0 - 2, y = succ.cy;
-			svgEl("path", { d: `M${x - 5},${y - 3.5} L${x},${y} L${x - 5},${y + 3.5}`, ...attrs, "stroke-width": 1.5, class: "sg-link-head" }, link);
+			const attrs = { stroke: color, "stroke-linecap": "round", "stroke-linejoin": "round", opacity: bad ? 0.9 : 0.6 };
+			svgEl("path", { d: roundedPath(pts, 5), ...attrs, "stroke-width": bad ? 1.6 : 1.35, class: "sg-link-line" }, link);
+			svgEl("path", { d: arrowHead(pts), ...attrs, fill: color, "stroke-width": 1, class: "sg-link-head" }, link);
 		}
 	}
 }
 
+type Pt = [number, number];
+
 /**
- * A smooth link from (x1, y1) to (x2, y2) that leaves and arrives horizontally.
- * Forward links are one S-curve; links that must go backwards loop through the gap between rows.
+ * Orthogonal route for a finish-to-start link. It leaves from just under (or over) the end of the
+ * predecessor, so it never crosses that item's label, then either runs straight into the successor's
+ * start or, when the successor starts right away, drops onto its top edge.
  */
-function linkPath(x1: number, y1: number, x2: number, y2: number, pitch: number): string {
-	if (Math.abs(y1 - y2) < 1) return `M${x1},${y1} L${x2},${y2}`;
-	const dx = x2 - x1;
-	// Forward, or back-to-back (next starts right as this ends): one gentle S-curve.
-	if (dx >= -24) {
-		const k = Math.max(16, Math.min(60, Math.abs(dx) / 2, Math.abs(y2 - y1) * 0.8));
-		return `M${x1},${y1} C${x1 + k},${y1} ${x2 - k},${y2} ${x2},${y2}`;
+function routeLink(pred: Placed, succ: Placed, layout: Layout): Pt[] | null {
+	const down = succ.cy > pred.cy;
+	const sign = down ? 1 : -1;
+	const point = (p: Placed) => p.item.type !== "task" && p.item.type !== "location";
+	const predHalf = point(pred) ? 9 : pred.lane.markH / 2;
+	const succHalf = point(succ) ? 10 : succ.lane.markH / 2;
+	const sx = point(pred) ? (pred.x0 + pred.x1) / 2 : pred.x1 - Math.min(7, (pred.x1 - pred.x0) / 2);
+	const sy = pred.cy + sign * predHalf;
+	const tx = succ.x0 - 2;
+	const ty = succ.cy;
+
+	if (Math.abs(pred.cy - succ.cy) < 1) {
+		// Same row: a short straight line from the end of the predecessor's footprint (bar or label).
+		const from = pred.labelInside || !pred.labelW || pred.labelAnchor === "end" ? pred.x1 + 2 : pred.labelX + pred.labelW + 6;
+		return tx - from >= 10 ? [[from, ty], [tx, ty]] : null;
 	}
-	const mid = y2 + (y2 > y1 ? -1 : 1) * (pitch / 2);
-	const r = Math.min(14, Math.abs(mid - y1) / 2, Math.abs(y2 - mid) / 2 + 6);
-	return `M${x1},${y1} C${x1 + r + 6},${y1} ${x1 + r + 6},${mid} ${x1},${mid} L${x2},${mid} C${x2 - r - 6},${mid} ${x2 - r - 6},${y2} ${x2},${y2}`;
+	if (tx - sx >= 12) return [[sx, sy], [sx, ty], [tx, ty]];
+
+	// The successor starts at or before our end: arrive on its near edge instead.
+	const edge = succ.cy - sign * (succHalf + 2);
+	const cx = point(succ) ? (succ.x0 + succ.x1) / 2 : Math.max(sx, succ.x0 + 9);
+	const onTarget = point(succ) ? Math.abs(cx - sx) < 1 : cx <= succ.x1 - 6;
+	if (onTarget && cx === sx) return [[sx, sy], [sx, edge]];
+	const gap = succ.cy - sign * (succHalf + (layout.g.rowPitch - layout.g.barH) / 2 + 2);
+	if (onTarget || point(succ)) return [[sx, sy], [sx, gap], [cx, gap], [cx, edge]];
+	// Fully backwards: come round through the gap and enter from the left.
+	return [[sx, sy], [sx, gap], [tx - 10, gap], [tx - 10, ty], [tx, ty]];
+}
+
+/** A polyline with softly rounded corners (radius r, never more than half of either segment). */
+function roundedPath(pts: Pt[], r: number): string {
+	let d = `M${pts[0][0]},${pts[0][1]}`;
+	for (let i = 1; i < pts.length - 1; i++) {
+		const [px, py] = pts[i - 1], [x, y] = pts[i], [nx, ny] = pts[i + 1];
+		const inLen = Math.hypot(x - px, y - py), outLen = Math.hypot(nx - x, ny - y);
+		const k = Math.min(r, inLen / 2, outLen / 2);
+		const ax = x - ((x - px) / (inLen || 1)) * k, ay = y - ((y - py) / (inLen || 1)) * k;
+		const bx = x + ((nx - x) / (outLen || 1)) * k, by = y + ((ny - y) / (outLen || 1)) * k;
+		d += ` L${ax},${ay} Q${x},${y} ${bx},${by}`;
+	}
+	const [lx, ly] = pts[pts.length - 1];
+	return d + ` L${lx},${ly}`;
+}
+
+/** A small arrowhead at the end of the route, pointing along its last segment. */
+function arrowHead(pts: Pt[]): string {
+	const [x, y] = pts[pts.length - 1];
+	const [px, py] = pts[pts.length - 2];
+	const len = Math.hypot(x - px, y - py) || 1;
+	const ux = (x - px) / len, uy = (y - py) / len;
+	const bx = x - ux * 6, by = y - uy * 6;
+	return `M${x},${y} L${bx - uy * 3.5},${by + ux * 3.5} L${bx + uy * 3.5},${by - ux * 3.5} Z`;
 }
 
 /** Plan B ghosts, decision points, journal entries and check-in slots. */
@@ -532,6 +594,20 @@ function paintDerived(g: SVGGElement, p: Placed, layout: Layout, o: PaintOptions
 		}, g);
 		svgEl("rect", { x: cx - 9, y: p.cy - 10, width: 18, height: 20, fill: "transparent", "data-part": "body", class: "sg-hit" }, g);
 	}
+}
+
+/** A milestone's name in a rounded badge tinted with its phase colour. */
+function milestoneBadge(g: SVGGElement, p: Placed, color: string, theme: Theme, labelAttrs: Attrs) {
+	const h = 22;
+	const x = p.labelAnchor === "end" ? p.labelX - p.labelW : p.labelX;
+	svgEl("rect", {
+		x, y: p.cy - h / 2, width: p.labelW, height: h, rx: h / 2,
+		fill: color, "fill-opacity": theme.dark ? 0.22 : 0.12, stroke: color, "stroke-opacity": theme.dark ? 0.5 : 0.35,
+		"pointer-events": "none", class: "sg-badge",
+	}, g);
+	text(g, p.labelAnchor === "end" ? p.labelX - MILESTONE_BADGE_PAD : p.labelX + MILESTONE_BADGE_PAD, p.cy, p.label, {
+		...labelAttrs, fill: theme.ink, "font-weight": 600,
+	});
 }
 
 /** Where the link dot sits: just past the bar, or past its label when the label is beside it. */

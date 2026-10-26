@@ -37,6 +37,9 @@ export const COMPACT: Geometry = {
 	fontSize: 12,
 };
 
+/** Horizontal padding inside a milestone's label badge. */
+export const MILESTONE_BADGE_PAD = 9;
+
 export function geometry(density?: Density): Geometry {
 	return density === "compact" ? COMPACT : G;
 }
@@ -278,8 +281,10 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 			const [s, e] = itemDays(item);
 			const done = mark.kind === "item" && isDone(item);
 			const label = journal || (flat && mark.kind !== "summary") ? "" : (done ? "✓ " : "") + (item.title || "Untitled");
-			const weight = item.type === "deadline" || item.type === "location" ? 600 : 500;
-			const labelW = label ? opts.measure(label, weight, g.fontSize) : 0;
+			const badge = item.type === "milestone" && !!label;
+			const weight = item.type === "deadline" || item.type === "location" || badge ? 600 : 500;
+			// Milestone labels sit in a tinted badge: reserve its padding.
+			const labelW = label ? opts.measure(label, weight, g.fontSize) + (badge ? MILESTONE_BADGE_PAD * 2 : 0) : 0;
 			let x0: number, x1: number, labelX: number, labelInside = false, labelAnchor: "start" | "end" = "start";
 			if (item.type === "task" || item.type === "location") {
 				x0 = xOf(s);
@@ -291,7 +296,7 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 				} else labelX = x1 + g.labelGap;
 			} else {
 				const cx = xOf(s) + ppd / 2;
-				const r = item.type === "milestone" ? 7 : 6;
+				const r = item.type === "milestone" ? 9 : 6;
 				x0 = cx - r;
 				x1 = cx + r;
 				labelX = x1 + g.labelGap;
