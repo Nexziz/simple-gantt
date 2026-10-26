@@ -228,6 +228,29 @@ function check(cond: unknown, msg: string) {
 		check(proj().off === undefined && document.querySelector('.sg-labels-svg [data-lane="locations"]'), "Everything brings it all back, data intact");
 		await sleep(600);
 		check(!(await read()).includes("off:"), "feature choices saved in the note");
+
+		// ── Deleting journal notes and skipping check-ins ──
+		board.openJournal();
+		const feedDel = document.querySelector(".sg-feed-entry .sg-feed-del") as HTMLButtonElement;
+		check(feedDel && getComputedStyle(feedDel).opacity !== "0", "journal notes have a visible delete button");
+		const entriesBefore = proj().journal?.length ?? 0;
+		feedDel.click();
+		check((proj().journal?.length ?? 0) === entriesBefore - 1, "deleting a journal note from the feed works");
+		type("> Note to delete from the editor");
+		board.openJournal();
+		(document.querySelector(".sg-feed-entry") as HTMLElement).click();
+		(document.querySelector('[aria-label="Delete this entry"]') as HTMLButtonElement).click();
+		check(!(proj().journal ?? []).some((e: any) => e.text === "Note to delete from the editor"), "a note opened for editing can be deleted");
+		const reviewDel = document.querySelector(".sg-feed-review .sg-feed-del") as HTMLButtonElement;
+		reviewDel?.click();
+		check(!proj().items.some((i: any) => i.review?.text === "Smoother than expected"), "a 'how did it go' reflection can be removed");
+		const missed = [...document.querySelectorAll(".sg-rhythm .sg-link")].find((b) => b.textContent?.startsWith("Skip")) as HTMLButtonElement | undefined;
+		if (missed) {
+			missed.click();
+			check(proj().skippedCheckins?.length > 0, "missed check-ins can be skipped");
+		}
+		await sleep(600);
+		check(!(await read()).includes("Note to delete from the editor"), "deletions are saved to the note");
 		log.push(`notices: ${JSON.stringify(notices)}`);
 		(window as any).__note = await app.vault.read(file);
 	} catch (e) {

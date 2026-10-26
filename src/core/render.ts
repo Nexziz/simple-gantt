@@ -140,7 +140,6 @@ export function paintHeader(layout: Layout, o: PaintOptions): SVGSVGElement {
 					"font-weight": wd === 0 ? 600 : 400,
 				});
 			} else {
-				svgEl("line", { x1: x + 0.5, x2: x + 0.5, y1: yWeekTop + 12, y2: layout.headerH, stroke: theme.grid }, svg);
 				text(svg, x + 3, yWeekTop + layout.g.weekRowH / 2 - 1, String(dom), { fill: theme.inkMuted, "font-size": 10 });
 			}
 		}
@@ -281,7 +280,7 @@ export function paintBody(layout: Layout, o: PaintOptions): SVGSVGElement {
 		const x = (p.x0 + p.x1) / 2;
 		svgEl("line", {
 			x1: x, x2: x, y1: p.cy + 9, y2: layout.bodyH, stroke: theme.deadline,
-			"stroke-width": 1.25, "stroke-dasharray": "4 3", opacity: 0.6, "pointer-events": "none",
+			"stroke-width": 1, "stroke-dasharray": "2 4", "stroke-linecap": "round", opacity: 0.45, "pointer-events": "none",
 		}, svg);
 	}
 
@@ -372,7 +371,7 @@ function paintItem(parent: Element, p: Placed, layout: Layout, o: PaintOptions, 
 	if (it.type === "task" && it.buffer) {
 		const w = p.x1 - p.x0;
 		svgEl("rect", {
-			x: p.x0 + 0.5, y: top + 0.5, width: Math.max(2, w - 1), height: layout.g.barH - 1, rx: 4,
+			x: p.x0 + 0.5, y: top + 0.5, width: Math.max(2, w - 1), height: layout.g.barH - 1, rx: 6,
 			fill: fills.buffer(color), stroke: color, "stroke-opacity": 0.55, class: "sg-mark", "data-part": "body",
 		}, g);
 		text(g, p.labelX, p.cy, p.label, { ...labelAttrs, ...halo(theme), fill: theme.inkSecondary, "font-style": "italic" });
@@ -384,7 +383,7 @@ function paintItem(parent: Element, p: Placed, layout: Layout, o: PaintOptions, 
 		if (o.interactive && layout.on("links")) connector(g, connectorX(p), p.cy, color, theme);
 	} else if (it.type === "task") {
 		const w = p.x1 - p.x0;
-		svgEl("rect", { x: p.x0, y: top, width: w, height: layout.g.barH, rx: 4, fill: color, class: "sg-mark", "data-part": "body" }, g);
+		svgEl("rect", { x: p.x0, y: top, width: w, height: layout.g.barH, rx: Math.min(6, w / 2), fill: color, class: "sg-mark", "data-part": "body" }, g);
 		const prog = Math.max(0, Math.min(100, it.progress ?? 0));
 		// Progress sits as a slim track just under the bar so it never fights the label.
 		if (layout.on("progress") && prog > 0 && prog < 100 && w > 12) {
@@ -449,20 +448,34 @@ function paintLinks(svg: SVGSVGElement, layout: Layout, o: PaintOptions) {
 			if (!pred || pred.item.dropped || succ.item.dropped) continue;
 			const bad = succ.startDay < earliestAfter(pred.item, succ.item);
 			const color = bad ? theme.deadline : theme.inkMuted;
-			const x1 = pred.x1, y1 = pred.cy, x2 = succ.x0, y2 = succ.cy;
-			let d: string;
-			if (Math.abs(y1 - y2) < 1) d = `M${x1},${y1} H${x2 - 1}`;
-			else if (x2 - x1 >= 14) d = `M${x1},${y1} h6 V${y2} H${x2 - 1}`;
-			else {
-				// Successor starts before the predecessor's end: route around through the gap between rows.
-				const mid = y2 + (y2 > y1 ? -1 : 1) * (layout.g.rowPitch / 2);
-				d = `M${x1},${y1} h6 V${mid} H${x2 - 10} V${y2} H${x2 - 1}`;
-			}
-			const link = svgEl("g", { class: `sg-link${bad ? " is-bad" : ""}`, "data-link": `${pred.item.id} ${succ.item.id}` }, g);
-			svgEl("path", { d, stroke: color, "stroke-width": bad ? 1.6 : 1.25, "stroke-linejoin": "round", opacity: bad ? 0.95 : 0.8 }, link);
-			svgEl("path", { d: `M${x2 - 6},${y2 - 3.5} L${x2},${y2} L${x2 - 6},${y2 + 3.5} Z`, fill: color, stroke: "none", opacity: bad ? 0.95 : 0.8 }, link);
+			const d = linkPath(pred.x1 + 1, pred.cy, succ.x0 - 2, succ.cy, layout.g.rowPitch);
+			// Links to or from a deadline duplicate its dashed rule: keep them hidden until hovered (interactive only).
+			const quiet = !bad && !!o.interactive && (pred.item.type === "deadline" || succ.item.type === "deadline");
+			const link = svgEl("g", { class: `sg-link${bad ? " is-bad" : ""}${quiet ? " is-quiet" : ""}`, "data-link": `${pred.item.id} ${succ.item.id}` }, g);
+			const attrs = { stroke: color, "stroke-linecap": "round", "stroke-linejoin": "round", opacity: bad ? 0.9 : 0.5 };
+			svgEl("path", { d, ...attrs, "stroke-width": bad ? 1.6 : 1.4, class: "sg-link-line" }, link);
+			// A small open chevron reads lighter than a filled triangle.
+			const x = succ.x0 - 2, y = succ.cy;
+			svgEl("path", { d: `M${x - 5},${y - 3.5} L${x},${y} L${x - 5},${y + 3.5}`, ...attrs, "stroke-width": 1.5, class: "sg-link-head" }, link);
 		}
 	}
+}
+
+/**
+ * A smooth link from (x1, y1) to (x2, y2) that leaves and arrives horizontally.
+ * Forward links are one S-curve; links that must go backwards loop through the gap between rows.
+ */
+function linkPath(x1: number, y1: number, x2: number, y2: number, pitch: number): string {
+	if (Math.abs(y1 - y2) < 1) return `M${x1},${y1} L${x2},${y2}`;
+	const dx = x2 - x1;
+	// Forward, or back-to-back (next starts right as this ends): one gentle S-curve.
+	if (dx >= -24) {
+		const k = Math.max(16, Math.min(60, Math.abs(dx) / 2, Math.abs(y2 - y1) * 0.8));
+		return `M${x1},${y1} C${x1 + k},${y1} ${x2 - k},${y2} ${x2},${y2}`;
+	}
+	const mid = y2 + (y2 > y1 ? -1 : 1) * (pitch / 2);
+	const r = Math.min(14, Math.abs(mid - y1) / 2, Math.abs(y2 - mid) / 2 + 6);
+	return `M${x1},${y1} C${x1 + r + 6},${y1} ${x1 + r + 6},${mid} ${x1},${mid} L${x2},${mid} C${x2 - r - 6},${mid} ${x2 - r - 6},${y2} ${x2},${y2}`;
 }
 
 /** Plan B ghosts, decision points, journal entries and check-in slots. */
@@ -484,7 +497,7 @@ function paintDerived(g: SVGGElement, p: Placed, layout: Layout, o: PaintOptions
 	if (p.kind === "ghost") {
 		const top = p.cy - layout.g.barH / 2;
 		svgEl("rect", {
-			x: p.x0 + 0.75, y: top + 0.75, width: Math.max(2, p.x1 - p.x0 - 1.5), height: layout.g.barH - 1.5, rx: 4,
+			x: p.x0 + 0.75, y: top + 0.75, width: Math.max(2, p.x1 - p.x0 - 1.5), height: layout.g.barH - 1.5, rx: 6,
 			fill: color, "fill-opacity": 0.1, stroke: color, "stroke-width": 1.5, "stroke-dasharray": "5 3",
 			class: "sg-mark", "data-part": "body",
 		}, g);

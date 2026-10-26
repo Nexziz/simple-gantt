@@ -129,6 +129,8 @@ export interface Project {
 	/** How often the journal asks for a check-in. */
 	checkin?: CheckIn;
 	journal?: JournalEntry[];
+	/** Check-in dates (ISO) the user chose to skip. */
+	skippedCheckins?: string[];
 	/** Row spacing; comfortable when unset. */
 	density?: "compact";
 	/** Optional features switched off for this project (see core/features). */

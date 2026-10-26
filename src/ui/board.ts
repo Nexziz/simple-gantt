@@ -121,6 +121,8 @@ export class GanttBoard {
 	private dismissedNudges = new Set<string>();
 	private draft: JournalDraft | null = null;
 	private journalFocusId: string | null = null;
+	/** The check-in slot (day number) the journal was opened for, offering "skip". */
+	private slotFocus: number | null = null;
 	private resizeObs: ResizeObserver;
 
 	// Elements
@@ -678,7 +680,7 @@ export class GanttBoard {
 			const id = el.getAttribute("data-id")!;
 			if (kind === "ghost" || kind === "decision") this.select(el.getAttribute("data-parent"), true, "planb");
 			else if (kind === "entry") this.openJournal({ entryId: id.replace(/^journal~/, "") });
-			else if (kind === "slot") this.openJournal({ date: fromDay(+id.replace(/^slot~/, "")) });
+			else if (kind === "slot") this.openJournal({ date: fromDay(+id.replace(/^slot~/, "")), slot: +id.replace(/^slot~/, "") });
 			else if (kind === "summary") this.setFolded(id.replace(/^phase~/, ""), false);
 		});
 
@@ -1737,12 +1739,13 @@ export class GanttBoard {
 
 	// ─── Journal ───────────────────────────────────────────────────────────
 
-	openJournal(opts: { date?: string; entryId?: string } = {}) {
+	openJournal(opts: { date?: string; entryId?: string; slot?: number } = {}) {
 		if (!this.project || !this.on("journal")) return;
 		this.selectedId = null;
 		this.panelMode = "journal";
 		const entry = opts.entryId ? this.project.journal?.find((e) => e.id === opts.entryId) : undefined;
 		this.journalFocusId = entry?.id ?? null;
+		this.slotFocus = opts.slot ?? null;
 		if (!this.draft || opts.date) this.draft = { date: opts.date ?? this.host.today(), text: "" };
 		this.refreshPanel();
 		this.panel.classList.add("is-open");
@@ -1769,6 +1772,14 @@ export class GanttBoard {
 		close.addEventListener("click", () => this.closePanel());
 
 		const form = h("div", { cls: "sg-form" }, panel);
+
+		// Opened from a check-in circle: offer to write it or skip it.
+		const focusSlot = this.slotFocus !== null ? slotStates(p, today).find((sl) => sl.day === this.slotFocus && (sl.state === "due" || sl.state === "missed")) : undefined;
+		if (focusSlot) {
+			const banner = h("div", { cls: "sg-slot-banner", kids: [icon("book", 14), span(`Check-in for ${formatDay(focusSlot.day, false)}: write a few lines below, or skip it.`)] }, form);
+			const skip = h("button", { cls: "sg-btn", text: "Skip" }, banner);
+			skip.addEventListener("click", () => this.skipCheckins([focusSlot.day]));
+		}
 
 		// Composer
 		const comp = h("div", { cls: `sg-composer${draft.editingId ? " is-editing" : ""}` }, form);
@@ -1800,6 +1811,9 @@ export class GanttBoard {
 		shuffle.addEventListener("click", () => (ta.placeholder = prompt(n + today + k++, PROMPTS)));
 		h("span", { cls: "sg-hint-inline", text: "Ctrl+Enter" }, foot);
 		if (draft.editingId) {
+			const editingId = draft.editingId;
+			const del = h("button", { cls: "sg-btn sg-icon-btn sg-danger", kids: [icon("trash", 14)], attrs: { "aria-label": "Delete this entry" } }, foot);
+			del.addEventListener("click", () => this.deleteJournalEntry(editingId));
 			const cancel = h("button", { cls: "sg-btn", text: "Cancel" }, foot);
 			cancel.addEventListener("click", () => {
 				this.draft = { date: this.host.today(), text: "" };
@@ -1822,6 +1836,11 @@ export class GanttBoard {
 				due ? "A check-in is due now ✍️" :
 				nextSlot ? `Next one ${formatDay(nextSlot.day, false)}${streak > 1 ? ` · 🔥 ${streak} in a row` : ""}` : "All done for this project",
 		}, label);
+		const missed = slots.filter((sl) => sl.state === "missed");
+		if (missed.length) {
+			const skipAll = h("button", { cls: "sg-link", text: `Skip ${missed.length} missed` }, label);
+			skipAll.addEventListener("click", () => this.skipCheckins(missed.map((sl) => sl.day)));
+		}
 		const sel = h("select", { cls: "sg-input sg-input-sm" }, rhythm);
 		h("option", { text: "Off", attrs: { value: "" } }, sel);
 		for (const [v, l] of Object.entries(CHECKIN_LABELS)) h("option", { text: l, attrs: { value: v } }, sel);
@@ -1865,14 +1884,18 @@ export class GanttBoard {
 				this.refreshPanel();
 				this.panel.querySelector<HTMLTextAreaElement>(".sg-composer textarea")?.focus();
 			});
-			if (r.kind === "entry") {
-				const del = h("button", { cls: "sg-feed-del", kids: [icon("trash", 13)], attrs: { "aria-label": "Delete entry" } }, card);
-				del.addEventListener("click", (ev) => {
-					ev.stopPropagation();
-					this.mutate(() => (p.journal = p.journal!.filter((x) => x.id !== r.id)), true);
-					this.host.notify("Entry deleted. Ctrl+Z to undo");
-				});
-			}
+			const del = h("button", {
+				cls: "sg-feed-del", kids: [icon("trash", 13)],
+				attrs: { "aria-label": r.kind === "entry" ? "Delete entry" : "Remove this reflection", title: r.kind === "entry" ? "Delete" : "Remove reflection (the item stays done)" },
+			}, card);
+			del.addEventListener("click", (ev) => {
+				ev.stopPropagation();
+				if (r.kind === "entry") return this.deleteJournalEntry(r.id);
+				const item = this.findItem(r.id);
+				if (!item) return;
+				this.mutate(() => delete item.review, true);
+				this.host.notify("Reflection removed (the item is still done). Ctrl+Z to undo");
+			});
 		}
 
 		const pfoot = h("div", { cls: "sg-panel-foot" }, panel);
@@ -1882,13 +1905,38 @@ export class GanttBoard {
 		h("span", { cls: "sg-hint-inline", text: `${rows.length} entr${rows.length === 1 ? "y" : "ies"}` }, pfoot);
 	}
 
+	private deleteJournalEntry(id: string) {
+		const p = this.project;
+		if (!p?.journal) return;
+		this.mutate(() => {
+			p.journal = p.journal!.filter((x) => x.id !== id);
+			if (!p.journal.length) delete p.journal;
+		});
+		if (this.draft?.editingId === id) this.draft = { date: this.host.today(), text: "" };
+		this.journalFocusId = null;
+		this.refreshPanel();
+		this.host.notify("Entry deleted. Ctrl+Z to undo");
+	}
+
+	private skipCheckins(days: number[]) {
+		const p = this.project;
+		if (!p || !days.length) return;
+		this.mutate(() => {
+			const set = new Set([...(p.skippedCheckins ?? []), ...days.map((d) => fromDay(d))]);
+			p.skippedCheckins = [...set].sort();
+		});
+		this.slotFocus = null;
+		this.refreshPanel();
+		this.host.notify(days.length === 1 ? "Check-in skipped" : `Skipped ${days.length} check-ins`);
+	}
+
 	/** Consecutive written check-ins, counting back from the latest one that has started. */
 	private streak(slots: ReturnType<typeof slotStates>, today: number): number {
 		let n = 0;
 		for (let i = slots.length - 1; i >= 0; i--) {
 			const sl = slots[i];
 			if (sl.day > today) continue;
-			if (sl.state === "due" && n === 0) continue;
+			if ((sl.state === "due" && n === 0) || sl.state === "skipped") continue;
 			if (sl.state !== "done") break;
 			n++;
 		}
@@ -2023,6 +2071,7 @@ export class GanttBoard {
 		} else if (n.kind === "checkin") {
 			const p = this.project!;
 			t(`Time for your ${p.checkin === "weekly" ? "weekly" : p.checkin === "fortnightly" ? "fortnightly" : "monthly"} check-in`, "How's it going?");
+			act(["Skip"], () => this.skipCheckins([n.slot.day]));
 			for (const m of MOODS) {
 				const b = h("button", { cls: "sg-mood", text: m.face, attrs: { title: m.label, "aria-label": m.label } }, actions);
 				b.addEventListener("click", () => {

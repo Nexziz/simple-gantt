@@ -52,7 +52,7 @@ export function entriesBetween(project: Project, from: number, to: number): Jour
 	});
 }
 
-export type SlotState = "done" | "due" | "missed" | "future";
+export type SlotState = "done" | "skipped" | "due" | "missed" | "future";
 
 export interface Slot {
 	day: number;
@@ -63,10 +63,11 @@ export interface Slot {
 /** Check-in slots with their state relative to today. */
 export function slotStates(project: Project, today: number): Slot[] {
 	const slots = checkInSlots(project);
+	const skipped = new Set((project.skippedCheckins ?? []).map((d) => toDay(d)));
 	return slots.map((day, i) => {
 		const next = slots[i + 1] ?? toDay(project.end) + 1;
 		const has = entriesBetween(project, day, next).length > 0;
-		const state: SlotState = has ? "done" : day > today ? "future" : today < next ? "due" : "missed";
+		const state: SlotState = has ? "done" : skipped.has(day) ? "skipped" : day > today ? "future" : today < next ? "due" : "missed";
 		return { day, next, state };
 	});
 }

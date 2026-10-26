@@ -220,8 +220,14 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 		groups.push({ kind: "keydates", key: "keydates", items: keyDates, marks: [...asMarks(keyDates), ...decisions] });
 	if (opts.showJournal && on("journal") && (project.checkin || project.journal?.length)) {
 		const marks: Mark[] = [];
+		let shownFuture = false;
 		for (const slot of slotStates(project, today)) {
-			if (slot.state === "done") continue;
+			if (slot.state === "done" || slot.state === "skipped") continue;
+			// Only the next upcoming check-in is drawn, so the row stays quiet.
+			if (slot.state === "future") {
+				if (shownFuture) continue;
+				shownFuture = true;
+			}
 			marks.push({ kind: "slot", state: slot.state, item: { id: `slot~${slot.day}`, type: "event", title: "Check-in", start: fromDayIso(slot.day) } });
 		}
 		for (const e of project.journal ?? [])

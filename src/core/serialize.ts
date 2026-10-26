@@ -179,6 +179,10 @@ export function normalizeProject(raw: unknown, fallbackTitle = "Untitled project
 		journal.push(entry);
 	}
 	if (journal.length) project.journal = journal;
+	if (Array.isArray(r.skippedCheckins)) {
+		const skipped = r.skippedCheckins.map((d) => asDate(d)).filter((d): d is string => !!d);
+		if (skipped.length) project.skippedCheckins = [...new Set(skipped)].sort();
+	}
 	if (r.density === "compact") project.density = "compact";
 	if (Array.isArray(r.off)) {
 		const off = ALL_FEATURES.filter((f) => (r.off as unknown[]).includes(f));
@@ -228,6 +232,7 @@ export function toPlain(project: Project): Record<string, unknown> {
 		return o;
 	});
 	if (project.checkin) out.checkin = project.checkin;
+	if (project.skippedCheckins?.length) out.skippedCheckins = [...project.skippedCheckins];
 	if (project.density) out.density = project.density;
 	if (project.off?.length) out.off = [...project.off];
 	if (project.journal?.length)

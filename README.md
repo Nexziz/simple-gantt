@@ -37,6 +37,7 @@ A simple, beautiful Gantt chart for Obsidian. Plan a project (or a whole dissert
   - The note box has mood faces and rotating writing prompts.
   - "How did it go?" reviews show up in the same feed.
   - **Save as note** turns the whole journal into a Markdown note, which is handy for the reflective chapter of a dissertation.
+  - Every note and reflection can be deleted, from the feed or while editing it. Check-ins you don't need can be skipped, one at a time or all missed ones at once.
 - **Nudges** above the chart: *Did you reach "Chapter 2 drafted"?*, *Decision time*, *Time for your check-in*, *Ethics committee is in 5 days*.
 - **At a glance:** an overall progress ring and a countdown to the next deadline in the toolbar.
 - **Export** as a high-resolution PNG or a vector SVG. Exports always use a clean white print style with a title block and legend, ready for a dissertation appendix.
