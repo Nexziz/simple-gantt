@@ -1,6 +1,6 @@
 import { ItemView, Notice, TFile, WorkspaceLeaf, debounce, normalizePath, parseYaml, stringifyYaml } from "obsidian";
 import { createFromTemplate, TemplateId } from "./core/templates";
-import { FRONTMATTER_KEY, extractBlock, normalizeProject, replaceBlock, toPlain } from "./core/serialize";
+import { extractBlock, normalizeProject, replaceBlock, toPlain } from "./core/serialize";
 import { todayIso } from "./core/dates";
 import type { Project } from "./core/types";
 import { GanttBoard } from "./ui/board";
@@ -151,14 +151,21 @@ export class GanttView extends ItemView {
 		if (file) await this.loadFile(file);
 	}
 
+	/** Link suggestions from recently opened notes plus the note the text resolves to; never scans the vault. */
 	private suggestNotes(query: string): string[] {
-		const q = query.toLowerCase();
-		return this.app.vault
-			.getMarkdownFiles()
-			.filter((f) => !this.app.metadataCache.getFileCache(f)?.frontmatter?.[FRONTMATTER_KEY])
-			.map((f) => f.path.replace(/\.md$/, ""))
-			.filter((p) => !q || p.toLowerCase().includes(q))
-			.slice(0, 30);
+		const q = query.trim();
+		const source = this.file?.path ?? "";
+		const out = this.app.workspace
+			.getLastOpenFiles()
+			.filter((p) => p.endsWith(".md") && p !== source)
+			.map((p) => p.replace(/\.md$/, ""))
+			.filter((p) => !q || p.toLowerCase().includes(q.toLowerCase()));
+		const hit = q ? this.app.metadataCache.getFirstLinkpathDest(q, source) : null;
+		if (hit) {
+			const path = hit.path.replace(/\.md$/, "");
+			if (!out.includes(path)) out.unshift(path);
+		}
+		return out.slice(0, 15);
 	}
 
 	private async exportFile(name: string, data: Blob | string) {

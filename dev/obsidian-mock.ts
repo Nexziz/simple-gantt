@@ -38,6 +38,7 @@ export class Vault extends Events {
 
 export class MetadataCache {
 	constructor(private vault: Vault) {}
+	getFirstLinkpathDest(link: string) { return this.vault.files.get(`${link}.md`) ?? this.vault.files.get(link) ?? null; }
 	getFileCache(f: TFile) {
 		const s = this.vault.data.get(f.path);
 		const m = typeof s === "string" ? /^---\n([\s\S]*?)\n---/.exec(s) : null;
@@ -65,6 +66,7 @@ export class Workspace extends Events {
 	getLeaf() { const l = new WorkspaceLeaf(this.app); this.leaves.push(l); return l; }
 	async revealLeaf() {}
 	getActiveFile() { return null; }
+	getLastOpenFiles(): string[] { return []; }
 	openLinkText(link: string) { notices.push(`open:${link}`); }
 }
 

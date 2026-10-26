@@ -94,6 +94,7 @@ function check(cond: unknown, msg: string) {
 		check(bad.querySelector(".sg-inline-error"), "broken YAML shows a friendly error instead of crashing");
 
 		check((plugin as any).saved?.lastProject === file.path, "last opened project remembered");
+		check((plugin as any).saved?.projects?.[0] === file.path && plugin.listProjects()[0] === file, "timelines are tracked without scanning the vault");
 
 		// ── New features ──
 		const board = view().board;

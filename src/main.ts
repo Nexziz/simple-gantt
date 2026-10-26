@@ -53,6 +53,13 @@ export default class SimpleGanttPlugin extends Plugin {
 		});
 
 		this.addSettingTab(new SimpleGanttSettingTab(this.app, this));
+
+		// Learn about timeline notes as they're opened, moved or deleted, instead of scanning the vault.
+		this.registerEvent(this.app.workspace.on("file-open", (file) => {
+			if (file && this.isProject(file)) this.rememberProject(file.path);
+		}));
+		this.registerEvent(this.app.vault.on("rename", (file, oldPath) => this.renameProject(oldPath, file.path)));
+		this.registerEvent(this.app.vault.on("delete", (file) => this.forgetProject(file.path)));
 	}
 
 	async loadSettings() {
@@ -64,9 +71,26 @@ export default class SimpleGanttPlugin extends Plugin {
 		await this.saveData(this.settings);
 	}
 
+	/** Track a timeline note (most recent first) and make it the one the view reopens. */
 	rememberProject(path: string) {
-		if (this.settings.lastProject === path) return;
+		const list = this.settings.projects;
+		if (this.settings.lastProject === path && list[0] === path) return;
 		this.settings.lastProject = path;
+		this.settings.projects = [path, ...list.filter((p) => p !== path)];
+		void this.saveSettings();
+	}
+
+	private forgetProject(path: string) {
+		if (!this.settings.projects.includes(path) && this.settings.lastProject !== path) return;
+		this.settings.projects = this.settings.projects.filter((p) => p !== path);
+		if (this.settings.lastProject === path) this.settings.lastProject = this.settings.projects[0] ?? null;
+		void this.saveSettings();
+	}
+
+	private renameProject(oldPath: string, newPath: string) {
+		if (!this.settings.projects.includes(oldPath) && this.settings.lastProject !== oldPath) return;
+		this.settings.projects = this.settings.projects.map((p) => (p === oldPath ? newPath : p));
+		if (this.settings.lastProject === oldPath) this.settings.lastProject = newPath;
 		void this.saveSettings();
 	}
 
@@ -74,11 +98,11 @@ export default class SimpleGanttPlugin extends Plugin {
 		return file.extension === "md" && !!this.app.metadataCache.getFileCache(file)?.frontmatter?.[FRONTMATTER_KEY];
 	}
 
+	/** The timelines the plugin has seen, without scanning the vault. */
 	listProjects(): TFile[] {
-		return this.app.vault
-			.getMarkdownFiles()
-			.filter((f) => this.isProject(f))
-			.sort((a, b) => b.stat.mtime - a.stat.mtime);
+		return this.settings.projects
+			.map((p) => this.app.vault.getAbstractFileByPath(p))
+			.filter((f): f is TFile => f instanceof TFile && this.isProject(f));
 	}
 
 	/** Open the Gantt tab (re-using an existing one), optionally on a specific project note. */

@@ -8,12 +8,15 @@ export interface SimpleGanttSettings {
 	exportFolder: string;
 	/** Path of the project opened last, restored when the view opens. */
 	lastProject: string | null;
+	/** Timeline notes this plugin knows about, most recent first. Kept so the plugin never has to scan the vault. */
+	projects: string[];
 }
 
 export const DEFAULT_SETTINGS: SimpleGanttSettings = {
 	folder: "Gantt",
 	exportFolder: "",
 	lastProject: null,
+	projects: [],
 };
 
 export class SimpleGanttSettingTab extends PluginSettingTab {
