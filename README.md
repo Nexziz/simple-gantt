@@ -18,11 +18,13 @@ A simple, beautiful Gantt chart for Obsidian. Plan a project (or a whole dissert
   | ⌖ | **Location** | Where you'll be: fieldwork, trips, retreats. |
 - **Add things in one line** with the quick-add bar. A live preview shows exactly what will be created.
 - **Drag to edit.** Move bars, resize them from either end, or drag a task into another phase. Drag across an empty row to draw a task, or double-click to drop a milestone. While you drag, date guides show exactly where it will land. Empty rows say how to start, and each row has a **+** to add to it.
-- **Links that keep the order.** Hover a bar and drag the dot at its end onto what comes next, for example *Analysis starts after Data collection*. Clean right-angled arrows with softened corners show the chain, and they light up when you hover a task. When something slips, everything linked after it moves too. If a deadline would be missed, the arrow turns red and you get a warning.
+- **Select several at once, like Canvas.** Turn on the **select tool** in the toolbar (or press **V**) and drag a box over items. You can also hold <kbd>Shift</kbd> and drag on an empty spot. <kbd>Shift</kbd>/<kbd>Ctrl</kbd>-click adds or removes single items, and <kbd>Ctrl</kbd>+<kbd>A</kbd> selects everything. Drag any selected item and they all move together, or use the arrow keys. A small bar at the bottom moves them a week at a time, links them in date order, unlinks them, ticks them off or deletes them.
+- **Links that keep the order.** Hover a bar and drag the dot at its end onto what comes next, for example *Analysis starts after Data collection*. Clean right-angled arrows with softened corners show the chain, and they light up when you hover a task. Links into a milestone drop onto its top point and leave from its bottom point, so a chain of steps stays compact. When something slips, everything linked after it moves too. If a deadline would be missed, the arrow turns red and you get a warning.
+- **Detach a link** by clicking its line: it turns blue and gets a **×**. Click the **×** or press <kbd>Delete</kbd>.
 - **Milestones stand out.** Each milestone has a glowing diamond, a badge tinted with its phase colour, and a marker on the date ruler, so you can see every milestone at a glance even when phases are folded.
 - **Fold phases.** Click a phase to fold it into one summary bar that shows overall progress. Press **F** to fold everything for a clean overview, or for a short version of the chart in your dissertation.
 - **Buffer time.** Plan slack for the delays that always come, with a hatched bar (`~` in quick add). You can also use "Add 2 weeks of buffer after this" on any task. Guides for PhD planning commonly suggest a few weeks of buffer per phase.
-- **Keyboard.** ←/→ move the selected item by a day (Shift: a week), Alt+←/→ resize it, and ↑/↓ move it to another phase. Press **?** for a card with every gesture.
+- **Keyboard.** ←/→ move the selection by a day (Shift: a week), Alt+←/→ resize, and ↑/↓ move to another phase. Press **?** for a card with every gesture.
 - **Comfortable or Compact spacing**, set in project settings.
 - **Use only what you need.** Under project settings → **Features**, switch tools on or off for each timeline: Links, Progress, Reminders, Key dates, Locations, Buffer time, Plan B, Journal and Celebrations. You can also pick a preset, **Essentials** or **Everything**. Switching something off only hides it; your data stays in the note. A new **Blank** project starts with the essentials, and **Dissertation** starts with everything.
 - **Side panel** for details: dates, phase, progress, a linked note, and notes.
@@ -61,6 +63,10 @@ A simple, beautiful Gantt chart for Obsidian. Plan a project (or a whole dissert
 |---|---|
 | ![](docs/images/19-features.png) | ![](docs/images/18-sparse-dark.png) |
 
+| Box select | Move several at once | Click a link to detach it |
+|---|---|---|
+| ![](docs/images/20-box-select.png) | ![](docs/images/21-group-move.png) | ![](docs/images/22-unlink.png) |
+
 ### The print export
 
 ![Export](docs/images/01-export-light.png)
@@ -86,7 +92,7 @@ Type a title and a date; everything else is optional.
 - **Years:** if you leave the year out, it's picked so the date falls inside the project.
 - **Types from words:** "deadline" or "due" makes a deadline, and "meeting", "conference" or "viva" makes a key date. You can also pick the type with the chips beside the input.
 - **Shortcuts:** <kbd>Enter</kbd> adds the item. <kbd>Shift</kbd>+<kbd>Enter</kbd> adds it and opens it for editing. <kbd>/</kbd> jumps to the input.
-- **On the board:** <kbd>Space</kbd> ticks off the selected item, <kbd>J</kbd> opens the journal, <kbd>Delete</kbd> removes the selection, and <kbd>Esc</kbd> closes panels.
+- **On the board:** <kbd>Space</kbd> ticks off the selection, <kbd>V</kbd> switches the select tool, <kbd>Ctrl</kbd>+<kbd>A</kbd> selects everything, <kbd>J</kbd> opens the journal, <kbd>Delete</kbd> removes the selection (or the selected link), and <kbd>Esc</kbd> clears the selection or closes panels.
 
 ## Where your data lives
 

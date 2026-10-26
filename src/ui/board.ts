@@ -43,7 +43,7 @@ const MAX_PPD = 48;
 
 interface Drag {
 	pointerId: number;
-	kind: "move" | "start" | "end" | "create" | "link";
+	kind: "move" | "start" | "end" | "create" | "link" | "marquee";
 	startX: number;
 	startY: number;
 	moved: boolean;
@@ -55,6 +55,18 @@ interface Drag {
 	snapshot?: Project;
 	/** Link drags: the item under the pointer. */
 	targetId?: string | null;
+	/** Shift/Ctrl/Cmd was held: a click adds to or removes from the selection. */
+	additive?: boolean;
+	/** Moving one of several selected items moves all of them. */
+	group?: string[];
+	/** Box select: what was selected before the box (kept when adding with Shift). */
+	base?: Set<string>;
+}
+
+/** Move an item by whole days. */
+function shiftItem(it: GanttItem, days: number) {
+	it.start = fromDay(toDay(it.start) + days);
+	if (it.end) it.end = fromDay(toDay(it.end) + days);
 }
 
 type El = HTMLElement;
@@ -109,7 +121,12 @@ export class GanttBoard {
 	private zoom: Zoom = "year";
 	private ppd = 2;
 	private zoomAnim = 0;
-	private selectedId: string | null = null;
+	/** Selected items. One item opens the side panel; several show the selection bar. */
+	private selectedIds = new Set<string>();
+	/** A selected link ("predId succId"), shown with a detach button. */
+	private selectedLink: string | null = null;
+	/** The select tool: dragging on empty space draws a selection box instead of a task. */
+	private selectTool = false;
 	private flashId: string | null = null;
 	private quickType: ItemType = "task";
 	private activePhase: string | null = null;
@@ -133,6 +150,8 @@ export class GanttBoard {
 	private stats!: El;
 	private foldBtn!: El;
 	private journalBtn!: El;
+	private selectBtn!: El;
+	private selBar!: El;
 	private nudgeBar!: El;
 	private quick!: El;
 	private quickInput!: HTMLInputElement;
@@ -158,6 +177,16 @@ export class GanttBoard {
 			this.render();
 		});
 		this.resizeObs.observe(this.root);
+	}
+
+	/** The single selected item, if exactly one is selected. */
+	private get selectedId(): string | null {
+		return this.selectedIds.size === 1 ? [...this.selectedIds][0] : null;
+	}
+
+	private set selectedId(id: string | null) {
+		this.selectedIds = new Set(id ? [id] : []);
+		this.selectedLink = null;
 	}
 
 	destroy() {
@@ -207,6 +236,8 @@ export class GanttBoard {
 		this.stats = h("div", { cls: "sg-stats" }, this.toolbar);
 		h("div", { cls: "sg-spacer" }, this.toolbar);
 
+		this.selectBtn = h("button", { cls: "sg-btn sg-icon-btn sg-select-btn", kids: [icon("select")], attrs: { "aria-label": "Select tool (V): drag a box over items", "aria-pressed": "false" } }, this.toolbar);
+		this.selectBtn.addEventListener("click", () => this.setSelectTool(!this.selectTool, true));
 		this.undoBtn = h("button", { cls: "sg-btn sg-icon-btn", kids: [icon("undo")], attrs: { "aria-label": "Undo (Ctrl+Z)" } }, this.toolbar);
 		this.undoBtn.addEventListener("click", () => this.undo());
 
@@ -272,6 +303,7 @@ export class GanttBoard {
 		this.bodyWrap = h("div", { cls: "sg-body" }, this.canvas);
 		this.tooltip = h("div", { cls: "sg-tooltip" }, r);
 		this.panel = h("div", { cls: "sg-panel", attrs: { "aria-hidden": "true" } }, r);
+		this.selBar = h("div", { cls: "sg-selbar", attrs: { role: "toolbar", "aria-label": "Selection" } }, r);
 
 		this.empty = h("div", { cls: "sg-empty" }, r);
 		this.buildEmpty();
@@ -333,6 +365,8 @@ export class GanttBoard {
 		this.foldBtn.setAttribute("aria-label", allFolded ? "Unfold all phases (F)" : "Fold all phases (F)");
 		this.foldBtn.classList.toggle("is-active", allFolded);
 		this.undoBtn.disabled = !this.undoStack.length;
+		this.pruneSelection();
+		this.renderSelectionBar();
 		if (!p) {
 			this.layout = null;
 			this.stats.replaceChildren();
@@ -350,7 +384,7 @@ export class GanttBoard {
 		}
 		const paint = {
 			theme: this.theme, measure: this.measure, today: toDay(this.host.today()),
-			selectedId: this.selectedId, flashId: this.flashId, interactive: true,
+			selectedIds: this.selectedIds, selectedLink: this.selectedLink, flashId: this.flashId, interactive: true,
 		};
 		this.canvas.setCssProps({
 			"--sg-cols": `${labelW}px ${layout.width}px`,
@@ -523,6 +557,230 @@ export class GanttBoard {
 		this.render();
 	}
 
+	// ─── Selection ─────────────────────────────────────────────────────────
+
+	/** Selected items, in the order they appear in the note. */
+	private selectedItems(): GanttItem[] {
+		return this.project?.items.filter((i) => this.selectedIds.has(i.id)) ?? [];
+	}
+
+	/** Several items: no single-item panel, the selection bar takes over. */
+	private setSelection(ids: Iterable<string>) {
+		this.selectedIds = new Set(ids);
+		this.selectedLink = null;
+		if (this.panelMode === "item") {
+			if (this.selectedId) this.refreshPanel();
+			else this.closePanel();
+		}
+		this.render();
+	}
+
+	/** Shift/Ctrl/Cmd-click: add an item to the selection, or take it out. */
+	private toggleSelected(id: string) {
+		const ids = new Set(this.selectedIds);
+		if (ids.has(id)) ids.delete(id);
+		else ids.add(id);
+		this.setSelection(ids);
+		this.root.focus({ preventScroll: true });
+	}
+
+	selectAll() {
+		if (!this.layout) return;
+		this.setSelection(this.layout.placed.filter((p) => p.kind === "item").map((p) => p.item.id));
+	}
+
+	setSelectTool(on: boolean, explain = false) {
+		this.selectTool = on;
+		this.root.classList.toggle("is-select-tool", on);
+		this.selectBtn.classList.toggle("is-active", on);
+		this.selectBtn.setAttribute("aria-pressed", String(on));
+		if (on && explain) this.host.notify("Select tool: drag a box over items, then drag one of them to move them all. Press V to switch back.");
+	}
+
+	/** Click on a link line: select it so it can be detached. */
+	private selectLink(key: string | null) {
+		this.selectedIds = new Set();
+		this.selectedLink = key;
+		if (this.panelMode === "item") this.closePanel();
+		this.render();
+		this.root.focus({ preventScroll: true });
+	}
+
+	private unlinkSelected() {
+		const [predId, succId] = this.selectedLink?.split(" ") ?? [];
+		const pred = predId ? this.findItem(predId) : undefined;
+		const succ = succId ? this.findItem(succId) : undefined;
+		this.selectedLink = null;
+		if (!this.project || !pred || !succ) return this.render();
+		const p = this.project;
+		this.mutate(() => removeLink(p, pred.id, succ.id));
+		this.host.notify(`Unlinked: “${succ.title}” no longer waits for “${pred.title}”. Ctrl+Z to undo.`);
+	}
+
+	/** Forget selected items or links that no longer exist (after undo, deletes or edits in the note). */
+	private pruneSelection() {
+		const p = this.project;
+		if (!p) {
+			this.selectedIds = new Set();
+			this.selectedLink = null;
+			return;
+		}
+		if ([...this.selectedIds].some((id) => !this.findItem(id))) this.selectedIds = new Set([...this.selectedIds].filter((id) => this.findItem(id)));
+		if (this.selectedLink) {
+			const [predId, succId] = this.selectedLink.split(" ");
+			if (!this.findItem(succId)?.after?.includes(predId) || !this.on("links")) this.selectedLink = null;
+		}
+	}
+
+	/** While box-selecting: select every item the box touches and draw the box. */
+	private paintMarquee(d: Drag, x: number, y: number) {
+		if (!this.layout) return;
+		const x0 = Math.min(d.startX, x), x1 = Math.max(d.startX, x);
+		const y0 = Math.min(d.startY, y), y1 = Math.max(d.startY, y);
+		const ids = new Set(d.base);
+		for (const p of this.layout.placed) {
+			if (p.kind !== "item") continue;
+			const half = p.lane.markH / 2;
+			if (p.x1 >= x0 && p.x0 <= x1 && p.cy + half >= y0 && p.cy - half <= y1) ids.add(p.item.id);
+		}
+		this.selectedIds = ids;
+		this.selectedLink = null;
+		if (this.panelMode === "item") this.closePanel();
+		this.render();
+		const svg = this.bodyWrap.querySelector("svg");
+		if (svg) svgEl("rect", { class: "sg-marquee", x: x0, y: y0, width: x1 - x0, height: y1 - y0, rx: 4, "pointer-events": "none" }, svg);
+	}
+
+	/** The floating bar shown while several items are selected. */
+	private renderSelectionBar() {
+		const bar = this.selBar;
+		bar.replaceChildren();
+		const items = this.selectedItems();
+		bar.classList.toggle("is-visible", items.length > 1);
+		if (items.length < 2) return;
+		const btn = (kids: Kid[], label: string, fn: () => void, cls = "") => {
+			const b = h("button", { cls: `sg-selbar-btn ${cls}`, kids, attrs: { "aria-label": label, title: label } }, bar);
+			b.addEventListener("click", fn);
+		};
+		h("span", { cls: "sg-selbar-count", text: `${items.length} selected` }, bar);
+		h("span", { cls: "sg-selbar-sep" }, bar);
+		btn([icon("chevronLeft", 14), span("Week")], "Move 1 week earlier (Shift+←)", () => this.shiftSelection(-7));
+		btn([span("Week"), icon("chevronRight", 14)], "Move 1 week later (Shift+→)", () => this.shiftSelection(7));
+		const linkable = items.filter((i) => i.type !== "location" && !i.dropped);
+		const inner = items.some((i) => i.after?.some((id) => this.selectedIds.has(id)));
+		if (this.on("links") && linkable.length > 1) btn([icon("branch", 14), span("Link in order")], "Link them one after another, by date", () => this.linkSelection());
+		if (this.on("links") && inner) btn([icon("unlink", 14), span("Unlink")], "Remove the links between these items", () => this.unlinkSelection());
+		const checkable = items.filter((i) => isCheckable(i) && !i.dropped);
+		if (checkable.length) {
+			const all = checkable.every((i) => isDone(i));
+			btn([icon("check", 14), span(all ? "Not done" : "Done")], all ? "Mark as not done" : "Mark all as done (Space)", () => this.toggleDoneSelection());
+		}
+		btn([icon("trash", 14)], "Delete selected (Delete)", () => this.deleteSelection(), "is-danger");
+		h("span", { cls: "sg-selbar-sep" }, bar);
+		btn([icon("x", 14)], "Clear selection (Esc)", () => this.select(null));
+	}
+
+	private shiftSelection(days: number) {
+		const items = this.selectedItems();
+		if (!items.length) return;
+		this.mutate(() => items.forEach((it) => shiftItem(it, days)), this.panelMode === "item");
+	}
+
+	/** Arrow keys with several items selected: move them all (Alt: resize, ↑/↓: change phase together). */
+	private nudgeSelection(key: string, week: boolean, resize: boolean) {
+		const p = this.project;
+		const items = this.selectedItems();
+		if (!p || !items.length) return;
+		if (items.length === 1) return this.nudgeItem(items[0], key, week, resize);
+		const step = week ? 7 : 1;
+		if (key === "ArrowLeft" || key === "ArrowRight") {
+			const delta = key === "ArrowLeft" ? -step : step;
+			this.mutate(() => {
+				for (const it of items) {
+					if (!resize) shiftItem(it, delta);
+					else if (it.end) it.end = fromDay(Math.max(toDay(it.start), toDay(it.end) + delta));
+				}
+			});
+		} else if (key === "ArrowUp" || key === "ArrowDown") {
+			const dir = key === "ArrowUp" ? -1 : 1;
+			const moves = items
+				.filter((it) => it.type === "task" || it.type === "milestone")
+				.map((it) => ({ it, to: p.phases[p.phases.findIndex((ph) => ph.id === it.phase) + dir] }));
+			// Move as a block: only if every one of them has a phase to go to.
+			if (!moves.length || moves.some((m) => !m.to)) return;
+			this.mutate(() => moves.forEach((m) => (m.it.phase = m.to.id)));
+		}
+	}
+
+	private deleteSelection() {
+		const items = this.selectedItems();
+		if (!this.project || !items.length) return;
+		if (items.length === 1) return this.deleteItem(items[0].id);
+		this.snapshot();
+		const ids = new Set(items.map((i) => i.id));
+		this.project.items = this.project.items.filter((i) => !ids.has(i.id));
+		this.selectedIds = new Set();
+		this.commit();
+		this.host.notify(`Deleted ${items.length} items. Press Ctrl+Z to undo.`);
+	}
+
+	/** Chain the selected items by date: each one starts after the one before it. */
+	private linkSelection() {
+		const p = this.project;
+		if (!p) return;
+		const chain = this.selectedItems()
+			.filter((i) => i.type !== "location" && !i.dropped)
+			.sort((a, b) => a.start.localeCompare(b.start) || (a.end ?? a.start).localeCompare(b.end ?? b.start));
+		let added = 0;
+		this.mutate(() => {
+			for (let i = 1; i < chain.length; i++) {
+				const [pred, succ] = [chain[i - 1], chain[i]];
+				if (succ.after?.includes(pred.id) || wouldCycle(p, pred.id, succ.id)) continue;
+				addLink(p, pred.id, succ.id);
+				added++;
+			}
+		});
+		this.host.notify(added ? `Linked ${chain.length} items in date order` : "These are already linked in order");
+	}
+
+	private unlinkSelection() {
+		const p = this.project;
+		if (!p) return;
+		const items = this.selectedItems();
+		let removed = 0;
+		this.mutate(() => {
+			for (const it of items)
+				for (const id of [...(it.after ?? [])])
+					if (this.selectedIds.has(id)) {
+						removeLink(p, id, it.id);
+						removed++;
+					}
+		});
+		this.host.notify(`Removed ${removed} link${removed === 1 ? "" : "s"}`);
+	}
+
+	private toggleDoneSelection() {
+		const items = this.selectedItems().filter((i) => isCheckable(i) && !i.dropped);
+		if (!items.length) return;
+		if (items.length === 1) return this.toggleDone(items[0]);
+		const undo = items.every((i) => isDone(i));
+		const today = this.host.today();
+		this.mutate(() => {
+			for (const it of items) {
+				if (undo) {
+					delete it.done;
+					delete it.doneOn;
+					if (it.type === "task" && (it.progress ?? 0) >= 100) it.progress = 90;
+				} else if (!isDone(it)) {
+					it.done = true;
+					it.doneOn = today;
+					if (it.type === "task") it.progress = 100;
+				}
+			}
+		});
+		this.host.notify(undo ? `Marked ${items.length} items as not done` : `Ticked off ${items.length} items 🎉`);
+	}
+
 	// ─── Quick add ─────────────────────────────────────────────────────────
 
 	private parseQuick(): ParseResult | null {
@@ -648,15 +906,31 @@ export class GanttBoard {
 			const part = target.closest("[data-part]");
 			const itemEl = target.closest(".sg-item");
 			const { x, y } = this.bodyPoint(e);
+			const additive = e.shiftKey || e.ctrlKey || e.metaKey;
+			if (target.closest(".sg-unlink")) return; // handled on click
+			const linkEl = target.closest(".sg-link");
+			if (linkEl) {
+				this.selectLink(linkEl.getAttribute("data-link"));
+				e.preventDefault();
+				return;
+			}
 			if (itemEl && itemEl.getAttribute("data-kind") !== "item") return; // handled on click
+			if (!itemEl && (this.selectTool || additive)) {
+				// Box select, like Canvas. Shift/Ctrl adds to what's already selected.
+				this.drag = { pointerId: e.pointerId, kind: "marquee", startX: x, startY: y, moved: false, additive, base: new Set(additive ? this.selectedIds : []) };
+				body.setPointerCapture(e.pointerId);
+				e.preventDefault();
+				return;
+			}
 			if (target.getAttribute("data-lane") === "journal") return;
 			if (itemEl && part) {
 				const item = this.findItem(itemEl.getAttribute("data-id")!);
 				if (!item) return;
 				const role = part.getAttribute("data-part");
 				const kind = role === "start" ? "start" : role === "end" ? "end" : role === "link" ? "link" : "move";
+				const group = kind === "move" && this.selectedIds.size > 1 && this.selectedIds.has(item.id) ? [...this.selectedIds] : undefined;
 				this.drag = {
-					pointerId: e.pointerId, kind, startX: x, startY: y, moved: false, item,
+					pointerId: e.pointerId, kind, startX: x, startY: y, moved: false, item, additive, group,
 					orig: { start: item.start, end: item.end, phase: item.phase },
 				};
 				body.setPointerCapture(e.pointerId);
@@ -668,12 +942,13 @@ export class GanttBoard {
 				};
 				body.setPointerCapture(e.pointerId);
 				e.preventDefault();
-			} else if (this.selectedId) {
+			} else if (this.selectedIds.size || this.selectedLink) {
 				this.select(null);
 			}
 		});
 
 		body.addEventListener("click", (e) => {
+			if ((e.target as Element).closest(".sg-unlink")) return this.unlinkSelected();
 			const el = (e.target as Element).closest(".sg-item");
 			const kind = el?.getAttribute("data-kind");
 			if (!el || !kind || kind === "item") return;
@@ -698,6 +973,10 @@ export class GanttBoard {
 				d.snapshot = cloneProject(this.project);
 				this.root.classList.add("is-dragging");
 			}
+			if (d.kind === "marquee") {
+				this.paintMarquee(d, x, y);
+				return;
+			}
 			if (d.kind === "link") {
 				this.paintLinkDrag(d, x, y, e);
 				return;
@@ -716,6 +995,19 @@ export class GanttBoard {
 			let s = s0, en = e0;
 			// Start every frame from the positions at drag start, so Shift can be pressed or released mid-drag.
 			this.restoreFrom(d.snapshot!);
+			const group = d.group;
+			if (group) {
+				// Several items selected: they all move together by whole days.
+				const moving = group.map((id) => this.findItem(id)).filter((it): it is GanttItem => !!it);
+				moving.forEach((it) => shiftItem(it, delta));
+				const pushed = this.on("links") ? enforceLinks(this.project).filter((id) => !group.includes(id)).length : 0;
+				this.render();
+				this.paintDragGuides(item);
+				const when = delta === 0 ? "Not moved" : `${formatDuration(Math.abs(delta))} ${delta > 0 ? "later" : "earlier"}`;
+				const pushedNote = pushed ? h("span", { cls: "sg-tt-ripple", kids: [icon("branch", 12), `Pushes ${pushed} linked item${pushed === 1 ? "" : "s"}`] }) : null;
+				this.showTooltip(e, [h("b", { text: `Moving ${moving.length} items` }), span(when), pushedNote]);
+				return;
+			}
 			let rippled = 0;
 			if (d.kind === "move") {
 				s = s0 + delta;
@@ -747,9 +1039,15 @@ export class GanttBoard {
 			this.root.classList.remove("is-dragging");
 			this.hideTooltip();
 			if (!this.project || !this.layout) return;
+			if (d.kind === "marquee") {
+				if (!d.moved && !d.additive) this.select(null);
+				else this.render();
+				return;
+			}
 			if (d.kind === "create") {
 				this.bodyWrap.querySelector(".sg-ghost")?.remove();
 				if (d.moved) this.createFromDrag(d);
+				else if (this.selectedIds.size || this.selectedLink) this.select(null);
 				return;
 			}
 			if (d.kind === "link") {
@@ -765,6 +1063,8 @@ export class GanttBoard {
 				if (d.item?.phase) this.activePhase = d.item.phase;
 				this.commit();
 				if (this.panelMode === "item" && this.selectedId === d.item?.id) this.refreshPanel();
+			} else if (d.item && d.additive) {
+				this.toggleSelected(d.item.id);
 			} else if (d.item) {
 				// Plain click: open the panel but keep focus on the board so arrow keys and Space work.
 				this.select(d.item.id, true, null);
@@ -829,6 +1129,16 @@ export class GanttBoard {
 		const id = itemEl?.getAttribute("data-id") ?? null;
 		this.bodyWrap.querySelectorAll(".sg-link.is-hot").forEach((l) => l.classList.remove("is-hot"));
 		if (id) this.bodyWrap.querySelectorAll(".sg-link").forEach((l) => l.getAttribute("data-link")?.split(" ").includes(id) && l.classList.add("is-hot"));
+		const linkEl = itemEl ? null : (e.target as Element).closest(".sg-link");
+		if (linkEl) {
+			linkEl.classList.add("is-hot");
+			const [pred, succ] = (linkEl.getAttribute("data-link") ?? "").split(" ").map((x) => this.findItem(x));
+			if (pred && succ) return this.showTooltip(e, [
+				h("b", { text: "Link" }),
+				span(`“${succ.title}” starts after “${pred.title}”`),
+				span(linkEl.classList.contains("is-selected") ? "Click × or press Delete to unlink" : "Click to select it, then unlink", "sg-tt-hint"),
+			]);
+		}
 		const p = itemEl && this.layout?.placed.find((x) => x.item.id === itemEl.getAttribute("data-id"));
 		if (!p) return this.hideTooltip();
 		this.showTooltip(e, this.tooltipContent(p));
@@ -1035,8 +1345,16 @@ export class GanttBoard {
 				["← →", "1 day · Shift: 1 week · Alt: resize"],
 				["↑ ↓", "move to the phase above / below"],
 			]);
+			section("Select several", [
+				["V", "select tool: drag a box over items"],
+				["Shift + drag", "on an empty spot draws a box too"],
+				["Shift/Ctrl + click", "add or remove one item"],
+				["Drag one", "of the selected items to move them all"],
+				["Ctrl + A", "select everything"],
+			]);
 			section("Connect & tidy", [
 				["Drag the dot", "at a bar's end onto what comes next"],
+				["Click a line", "to select it · × or Delete unlinks"],
 				["Click a phase", "to fold it into one summary bar · F folds all"],
 				["Space", "tick off the selected item"],
 				["J · Ctrl+Z", "journal · undo"],
@@ -1129,25 +1447,29 @@ export class GanttBoard {
 		} else if (e.key === "Escape") {
 			if (this.menu) this.closeMenu();
 			else if (this.panelMode) this.closePanel();
-			else this.select(null);
-		} else if ((e.key === "Delete" || e.key === "Backspace") && !inField && this.selectedId) {
+			else if (this.selectedIds.size || this.selectedLink) this.select(null);
+			else if (this.selectTool) this.setSelectTool(false);
+		} else if ((e.key === "Delete" || e.key === "Backspace") && !inField && this.selectedLink) {
 			e.preventDefault();
-			this.deleteItem(this.selectedId);
+			this.unlinkSelected();
+		} else if ((e.key === "Delete" || e.key === "Backspace") && !inField && this.selectedIds.size) {
+			e.preventDefault();
+			this.deleteSelection();
+		} else if (mod && e.key.toLowerCase() === "a" && !inField) {
+			e.preventDefault();
+			this.selectAll();
+		} else if (e.key.toLowerCase() === "v" && !inField && !mod) {
+			e.preventDefault();
+			this.setSelectTool(!this.selectTool);
 		} else if ((e.key === "/" || e.key === "n") && !inField && !mod) {
 			e.preventDefault();
 			this.quickInput.focus();
-		} else if (e.key === " " && !inField && this.selectedId) {
-			const item = this.findItem(this.selectedId);
-			if (item && isCheckable(item)) {
-				e.preventDefault();
-				this.toggleDone(item);
-			}
-		} else if (e.key.startsWith("Arrow") && !inField && !mod && this.selectedId) {
-			const item = this.findItem(this.selectedId);
-			if (item) {
-				e.preventDefault();
-				this.nudgeItem(item, e.key, e.shiftKey, e.altKey);
-			}
+		} else if (e.key === " " && !inField && this.selectedIds.size) {
+			e.preventDefault();
+			this.toggleDoneSelection();
+		} else if (e.key.startsWith("Arrow") && !inField && !mod && this.selectedIds.size) {
+			e.preventDefault();
+			this.nudgeSelection(e.key, e.shiftKey, e.altKey);
 		} else if (e.key.toLowerCase() === "f" && !inField && !mod) {
 			e.preventDefault();
 			this.toggleFoldAll();

@@ -59,6 +59,10 @@ export interface PaintOptions {
 	measure: Measure;
 	today?: number | null;
 	selectedId?: string | null;
+	/** Several selected items (box select / Shift-click). */
+	selectedIds?: ReadonlySet<string>;
+	/** The selected link, as "predId succId". It gets a detach button. */
+	selectedLink?: string | null;
 	flashId?: string | null;
 	interactive?: boolean;
 	/** Visible horizontal window [from, to] in timeline px; header labels stay inside it while scrolling. */
@@ -303,7 +307,7 @@ export function paintBody(layout: Layout, o: PaintOptions): SVGSVGElement {
 		svgEl("line", { x1: x, x2: x, y1: 0, y2: layout.bodyH, stroke: theme.accent, "stroke-width": 1.5, "pointer-events": "none" }, svg);
 	}
 
-	if (layout.on("links")) paintLinks(svg, layout, o);
+	const detach = layout.on("links") ? paintLinks(svg, layout, o) : null;
 
 	const items = svgEl("g", { class: "sg-items" }, svg);
 	const bufferIds = new Map<string, string>();
@@ -322,6 +326,14 @@ export function paintBody(layout: Layout, o: PaintOptions): SVGSVGElement {
 		},
 	};
 	for (const p of layout.placed) paintItem(items, p, layout, o, fills);
+	// The selected link's detach button sits on top of everything.
+	if (detach) {
+		const [x, y] = detach;
+		const b = svgEl("g", { class: "sg-unlink", "data-action": "unlink" }, svg);
+		svgEl("title", {}, b).textContent = "Unlink (Delete)";
+		svgEl("circle", { cx: x, cy: y, r: 10, fill: theme.surface, stroke: theme.accent, "stroke-width": 1.5 }, b);
+		svgEl("path", { d: `M${x - 3.5},${y - 3.5} L${x + 3.5},${y + 3.5} M${x + 3.5},${y - 3.5} L${x - 3.5},${y + 3.5}`, stroke: theme.accent, "stroke-width": 1.8, "stroke-linecap": "round" }, b);
+	}
 	return svg;
 }
 
@@ -356,7 +368,8 @@ function paintItem(parent: Element, p: Placed, layout: Layout, o: PaintOptions, 
 	const { theme } = o;
 	const it = p.item;
 	const cls = ["sg-item", p.kind === "item" ? `sg-${it.type}` : `sg-${p.kind}`];
-	if (o.selectedId === it.id) cls.push("is-selected");
+	const selected = o.selectedId === it.id || !!o.selectedIds?.has(it.id);
+	if (selected) cls.push("is-selected");
 	if (o.flashId === it.id) cls.push("sg-pop");
 	if (it.dropped) cls.push("is-dropped");
 	if (p.state) cls.push(`is-${p.state}`);
@@ -372,7 +385,7 @@ function paintItem(parent: Element, p: Placed, layout: Layout, o: PaintOptions, 
 		"text-decoration": it.dropped ? "line-through" : null,
 	};
 
-	if (o.selectedId === it.id) {
+	if (selected) {
 		const outside = !p.labelInside;
 		const sx0 = outside && p.labelAnchor === "end" ? p.labelX - p.labelW : p.x0;
 		const sx1 = outside && p.labelAnchor === "start" ? p.labelX + p.labelW : p.x1;
@@ -455,10 +468,11 @@ function paintItem(parent: Element, p: Placed, layout: Layout, o: PaintOptions, 
 }
 
 /** Elbow arrows from each predecessor's end to its successor's start; red when the order is broken. */
-function paintLinks(svg: SVGSVGElement, layout: Layout, o: PaintOptions) {
+function paintLinks(svg: SVGSVGElement, layout: Layout, o: PaintOptions): Pt | null {
 	const { theme } = o;
 	const byId = new Map(layout.placed.filter((p) => p.kind === "item").map((p) => [p.item.id, p]));
 	const g = svgEl("g", { class: "sg-links", fill: "none", "pointer-events": "none" }, svg);
+	let detach: Pt | null = null;
 	for (const succ of byId.values()) {
 		for (const id of succ.item.after ?? []) {
 			const pred = byId.get(id);
@@ -471,20 +485,43 @@ function paintLinks(svg: SVGSVGElement, layout: Layout, o: PaintOptions) {
 			const touchesDeadline = pred.item.type === "deadline" || succ.item.type === "deadline";
 			if (touchesDeadline && !bad && !o.interactive) continue;
 			const quiet = touchesDeadline && !bad;
-			const link = svgEl("g", { class: `sg-link${bad ? " is-bad" : ""}${quiet ? " is-quiet" : ""}`, "data-link": `${pred.item.id} ${succ.item.id}` }, g);
+			const key = `${pred.item.id} ${succ.item.id}`;
+			const selected = o.selectedLink === key;
+			const cls = `sg-link${bad ? " is-bad" : ""}${quiet ? " is-quiet" : ""}${selected ? " is-selected" : ""}`;
+			const link = svgEl("g", { class: cls, "data-link": key }, g);
+			const d = roundedPath(pts, 5);
 			const attrs = { stroke: color, "stroke-linecap": "round", "stroke-linejoin": "round", opacity: bad ? 0.9 : 0.6 };
-			svgEl("path", { d: roundedPath(pts, 5), ...attrs, "stroke-width": bad ? 1.6 : 1.35, class: "sg-link-line" }, link);
+			svgEl("path", { d, ...attrs, "stroke-width": bad ? 1.6 : 1.35, class: "sg-link-line" }, link);
 			svgEl("path", { d: arrowHead(pts), ...attrs, fill: color, "stroke-width": 1, class: "sg-link-head" }, link);
+			// A wide invisible stroke makes the thin line easy to hover and click.
+			if (o.interactive) svgEl("path", { d, stroke: "transparent", "stroke-width": 11, "pointer-events": "stroke", class: "sg-link-hit" }, link);
+			if (selected) detach = midpoint(pts);
 		}
 	}
+	return detach;
+}
+
+/** The point halfway along a polyline, where a selected link shows its detach button. */
+function midpoint(pts: Pt[]): Pt {
+	const lens = pts.slice(1).map((p, i) => Math.hypot(p[0] - pts[i][0], p[1] - pts[i][1]));
+	let left = lens.reduce((a, b) => a + b, 0) / 2;
+	for (let i = 0; i < lens.length; i++) {
+		if (left <= lens[i] || i === lens.length - 1) {
+			const t = lens[i] ? Math.min(1, left / lens[i]) : 0;
+			return [pts[i][0] + (pts[i + 1][0] - pts[i][0]) * t, pts[i][1] + (pts[i + 1][1] - pts[i][1]) * t];
+		}
+		left -= lens[i];
+	}
+	return pts[0];
 }
 
 type Pt = [number, number];
 
 /**
  * Orthogonal route for a finish-to-start link. It leaves from just under (or over) the end of the
- * predecessor, so it never crosses that item's label, then either runs straight into the successor's
- * start or, when the successor starts right away, drops onto its top edge.
+ * predecessor, so it never crosses that item's label. Into a bar it runs straight into the start
+ * (or drops onto the top edge when the bar starts right away). Milestones, deadlines and key dates
+ * are always entered through their top (or bottom) point, which keeps a chain of steps compact.
  */
 function routeLink(pred: Placed, succ: Placed, layout: Layout): Pt[] | null {
 	const down = succ.cy > pred.cy;
@@ -502,15 +539,24 @@ function routeLink(pred: Placed, succ: Placed, layout: Layout): Pt[] | null {
 		const from = pred.labelInside || !pred.labelW || pred.labelAnchor === "end" ? pred.x1 + 2 : pred.labelX + pred.labelW + 6;
 		return tx - from >= 10 ? [[from, ty], [tx, ty]] : null;
 	}
+	const edge = succ.cy - sign * (succHalf + 2);
+	const gap = succ.cy - sign * (succHalf + (layout.g.rowPitch - layout.g.barH) / 2 + 2);
+	if (point(succ)) {
+		const cx = (succ.x0 + succ.x1) / 2;
+		// Right under the predecessor: a straight drop.
+		if (point(pred) ? Math.abs(cx - sx) < 1 : cx >= pred.x0 + 3 && cx <= pred.x1 - 1) return [[cx, sy], [cx, edge]];
+		// Nothing to the right of the predecessor: leave from its end, across, then down onto the point.
+		const clear = !pred.labelW || pred.labelAnchor === "end" || (!point(pred) && pred.labelInside);
+		const ex = pred.x1 + 1;
+		if (clear && cx - ex >= 4) return [[ex, pred.cy], [cx, pred.cy], [cx, edge]];
+		return [[sx, sy], [sx, gap], [cx, gap], [cx, edge]];
+	}
 	if (tx - sx >= 12) return [[sx, sy], [sx, ty], [tx, ty]];
 
 	// The successor starts at or before our end: arrive on its near edge instead.
-	const edge = succ.cy - sign * (succHalf + 2);
-	const cx = point(succ) ? (succ.x0 + succ.x1) / 2 : Math.max(sx, succ.x0 + 9);
-	const onTarget = point(succ) ? Math.abs(cx - sx) < 1 : cx <= succ.x1 - 6;
-	if (onTarget && cx === sx) return [[sx, sy], [sx, edge]];
-	const gap = succ.cy - sign * (succHalf + (layout.g.rowPitch - layout.g.barH) / 2 + 2);
-	if (onTarget || point(succ)) return [[sx, sy], [sx, gap], [cx, gap], [cx, edge]];
+	const cx = Math.max(sx, succ.x0 + 9);
+	if (cx === sx && cx <= succ.x1 - 6) return [[sx, sy], [sx, edge]];
+	if (cx <= succ.x1 - 6) return [[sx, sy], [sx, gap], [cx, gap], [cx, edge]];
 	// Fully backwards: come round through the gap and enter from the left.
 	return [[sx, sy], [sx, gap], [tx - 10, gap], [tx - 10, ty], [tx, ty]];
 }

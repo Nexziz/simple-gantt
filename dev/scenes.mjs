@@ -7,6 +7,19 @@ const { chromium } = createRequire(import.meta.url)("playwright");
 const here = path.dirname(fileURLToPath(import.meta.url));
 const only = process.argv[2];
 
+/** Select tool on, then drag a box from an empty spot (top right) over the data-collection and analysis items. */
+async function boxSelect(page, release) {
+	await page.click(".sg-select-btn");
+	await page.mouse.move(0, 0);
+	const a = await page.locator('.sg-item[data-id="c1"] rect.sg-mark').boundingBox();
+	const b = await page.locator('.sg-item[data-id="d2"] rect.sg-mark').boundingBox();
+	const [x0, y0, x1, y1] = [a.x + a.width + 470, a.y - 12, a.x + 60, b.y + b.height - 6];
+	await page.mouse.move(x0, y0);
+	await page.mouse.down();
+	for (let i = 1; i <= 10; i++) await page.mouse.move(x0 + (x1 - x0) * (i / 10), y0 + (y1 - y0) * (i / 10));
+	if (release) await page.mouse.up();
+}
+
 const scenes = {
 	async "02-board-light"(page) {},
 	async "03-quick-add"(page) {
@@ -103,6 +116,33 @@ const scenes = {
 			el.scrollTo(0, t.offsetTop - 20);
 		});
 		await page.waitForTimeout(300);
+	},
+	async "20-box-select"(page) {
+		await boxSelect(page, false);
+		await page.waitForTimeout(150);
+	},
+	async "21-group-move"(page) {
+		await boxSelect(page, true);
+		const c = await page.locator('.sg-item[data-id="c2"] rect.sg-mark').boundingBox();
+		await page.mouse.move(c.x + c.width / 2, c.y + c.height / 2);
+		await page.mouse.down();
+		for (let i = 1; i <= 8; i++) await page.mouse.move(c.x + c.width / 2 + i * 5, c.y + c.height / 2);
+		await page.waitForTimeout(150);
+	},
+	async "22-unlink"(page) {
+		const pt = await page.locator('.sg-link[data-link="c2 d2"] .sg-link-hit').evaluate((el) => {
+			const p = el.getPointAtLength(el.getTotalLength() * 0.3);
+			const r = el.ownerSVGElement.getBoundingClientRect();
+			return { x: r.left + p.x, y: r.top + p.y };
+		});
+		await page.mouse.move(pt.x, pt.y);
+		await page.waitForTimeout(150);
+		await page.mouse.down();
+		await page.mouse.up();
+		await page.waitForTimeout(150);
+		await page.locator(".sg-unlink").waitFor();
+		await page.mouse.move(pt.x, pt.y + 1);
+		await page.waitForTimeout(150);
 	},
 	async "14-ripple"(page) {
 		const box = await page.locator('.sg-item[data-id="b3"] rect.sg-mark').boundingBox();

@@ -27,6 +27,8 @@ const PATHS: Record<string, string> = {
 	fold: '<path d="m8 3 4 4 4-4"/><path d="m8 21 4-4 4 4"/><path d="M4 12h16"/>',
 	unfold: '<path d="m8 7 4-4 4 4"/><path d="m8 17 4 4 4-4"/><path d="M4 12h16"/>',
 	buffer: '<rect x="3" y="7" width="18" height="10" rx="2"/><path d="m7 17 6-10M12 17l6-10"/>',
+	unlink: '<path d="M9 17H7A5 5 0 0 1 7 7h2M15 7h2a5 5 0 0 1 3.5 8.5M8 12h2M3 3l18 18"/>',
+	select: '<path d="M4 8V5a1 1 0 0 1 1-1h3M12 4h2M4 12v2M4 18v1a1 1 0 0 0 1 1h1M18 4h1a1 1 0 0 1 1 1v1"/><path d="m12 12 8.5 3.2-3.8 1.5-1.5 3.8z" fill="currentColor"/>',
 	enter: '<path d="M9 10 4 15l5 5"/><path d="M20 4v7a4 4 0 0 1-4 4H4"/>',
 	// Item types
 	task: '<rect x="3" y="8" width="18" height="8" rx="2.5" fill="currentColor" stroke="none"/>',

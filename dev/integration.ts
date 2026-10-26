@@ -251,6 +251,72 @@ function check(cond: unknown, msg: string) {
 		}
 		await sleep(600);
 		check(!(await read()).includes("Note to delete from the editor"), "deletions are saved to the note");
+		// ── Box select, moving several at once, detaching links ──
+		key("Escape");
+		key("Escape");
+		const bodyEl = document.querySelector(".sg-body") as HTMLElement;
+		const markOf = (id: string) => document.querySelector(`.sg-item[data-id="${id}"] .sg-mark`) as SVGGraphicsElement;
+		const pe = (type: string, el: Element, x: number, y: number, extra: PointerEventInit = {}) =>
+			el.dispatchEvent(new PointerEvent(type, { clientX: x, clientY: y, pointerId: 1, button: 0, bubbles: true, pointerType: "mouse", ...extra }));
+		const picked = () => board["selectedIds"] as Set<string>;
+		key("v");
+		check(root.classList.contains("is-select-tool"), "V switches on the select tool");
+		const ra = markOf(draft.id).getBoundingClientRect(), rb = markOf(edit.id).getBoundingClientRect();
+		const laneHit = document.querySelector(".sg-lane-hit")!;
+		pe("pointerdown", laneHit, Math.min(ra.left, rb.left) - 4, Math.min(ra.top, rb.top) - 3);
+		pe("pointermove", bodyEl, (ra.left + rb.right) / 2, (ra.top + rb.bottom) / 2);
+		check(document.querySelector(".sg-marquee"), "dragging on empty space draws a selection box");
+		pe("pointermove", bodyEl, Math.max(ra.right, rb.right) + 2, Math.max(ra.bottom, rb.bottom) + 3);
+		pe("pointerup", bodyEl, Math.max(ra.right, rb.right) + 2, Math.max(ra.bottom, rb.bottom) + 3);
+		check(picked().has(draft.id) && picked().has(edit.id), `the box selects every item it touches (${picked().size})`);
+		check(document.querySelector(".sg-selbar.is-visible")?.textContent?.includes(`${picked().size} selected`), "a selection bar shows what's selected");
+		check(!document.querySelector(".sg-panel.is-open"), "no single-item panel while several are selected");
+
+		const startsBefore = new Map([...picked()].map((id) => [id, proj().items.find((i: any) => i.id === id).start as string]));
+		const ppd2 = board["ppd"] as number;
+		const cx = ra.left + ra.width / 2, cy = ra.top + ra.height / 2;
+		pe("pointerdown", markOf(draft.id), cx, cy);
+		pe("pointermove", bodyEl, cx + ppd2 * 4, cy);
+		pe("pointermove", bodyEl, cx + ppd2 * 7, cy);
+		pe("pointerup", bodyEl, cx + ppd2 * 7, cy);
+		const shifts = [...startsBefore].map(([id, s0]) => (Date.parse(proj().items.find((i: any) => i.id === id).start) - Date.parse(s0)) / 864e5);
+		check(shifts.length > 1 && shifts.every((d) => d === 7), `dragging one selected item moves them all together (${shifts.join(", ")})`);
+		key("ArrowLeft", { shiftKey: true });
+		check(proj().items.find((i: any) => i.id === edit.id).start === startsBefore.get(edit.id), "Shift+← moves the whole selection back a week");
+
+		const er = markOf(edit.id).getBoundingClientRect();
+		pe("pointerdown", markOf(edit.id), er.left + 3, er.top + 3, { shiftKey: true });
+		pe("pointerup", bodyEl, er.left + 3, er.top + 3, { shiftKey: true });
+		check(!picked().has(edit.id) && picked().has(draft.id), "Shift-click takes an item out of the selection");
+		key("a", { ctrlKey: true });
+		check(picked().size === board["layout"].placed.filter((p: any) => p.kind === "item").length, "Ctrl+A selects everything");
+		key("Escape");
+		check(picked().size === 0, "Esc clears the selection");
+		key("v");
+		check(!root.classList.contains("is-select-tool"), "V switches the select tool off again");
+
+		const linkHit = () => document.querySelector(`.sg-link[data-link="${draft.id} ${edit.id}"] .sg-link-hit`);
+		check(linkHit(), "links have a wide, clickable hit area");
+		pe("pointerdown", linkHit()!, 0, 0);
+		check(board["selectedLink"] === `${draft.id} ${edit.id}` && document.querySelector(".sg-link.is-selected"), "clicking a link selects it");
+		const unlinkBtn = document.querySelector(".sg-unlink");
+		check(unlinkBtn, "a selected link shows a detach button");
+		unlinkBtn!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+		check(!edit.after?.includes(draft.id) && !proj().items.find((i: any) => i.id === edit.id).after?.includes(draft.id), "the detach button unlinks them");
+		key("z", { ctrlKey: true });
+		check(proj().items.find((i: any) => i.id === edit.id).after?.includes(draft.id), "Ctrl+Z brings the link back");
+		pe("pointerdown", linkHit()!, 0, 0);
+		key("Delete");
+		check(!proj().items.find((i: any) => i.id === edit.id).after?.includes(draft.id), "Delete unlinks a selected link");
+
+		board["setSelection"]([draft.id, edit.id]);
+		const count = proj().items.length;
+		key("Delete");
+		check(proj().items.length === count - 2, "Delete removes every selected item");
+		key("z", { ctrlKey: true });
+		check(proj().items.length === count, "…and Ctrl+Z brings them all back");
+		await sleep(600);
+		check((await read()).includes("title: Draft chapter 3"), "group edits are saved to the note");
 		log.push(`notices: ${JSON.stringify(notices)}`);
 		(window as any).__note = await app.vault.read(file);
 	} catch (e) {
