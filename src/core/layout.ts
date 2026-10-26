@@ -2,8 +2,26 @@ import { formatMonthSpan, monthEnd, monthStart, toDay } from "./dates";
 import { SlotState, slotStates } from "./journal";
 import { ColorName, GanttItem, Mood, Phase, Project, isDone } from "./types";
 
-/** Geometry constants, in CSS pixels. */
+/** Geometry, in CSS pixels. Comfortable is the default; Compact fits more on screen. */
 export const G = {
+	yearRowH: 24,
+	monthRowH: 30,
+	weekRowH: 22,
+	rowPitch: 38,
+	barH: 24,
+	stripPitch: 30,
+	stripH: 22,
+	lanePad: 14,
+	minLaneH: 62,
+	labelGap: 8,
+	packGap: 16,
+	fontSize: 12.5,
+};
+
+export type Geometry = typeof G;
+export type Density = "comfortable" | "compact";
+
+export const COMPACT: Geometry = {
 	yearRowH: 22,
 	monthRowH: 26,
 	weekRowH: 20,
@@ -18,6 +36,10 @@ export const G = {
 	fontSize: 12,
 };
 
+export function geometry(density?: Density): Geometry {
+	return density === "compact" ? COMPACT : G;
+}
+
 export type LaneKind = "locations" | "keydates" | "journal" | "phase" | "unassigned";
 
 /**
@@ -27,8 +49,9 @@ export type LaneKind = "locations" | "keydates" | "journal" | "phase" | "unassig
  *  decision – the Plan B decision date, shown among the key dates
  *  entry    – a journal entry
  *  slot     – a check-in date with no entry (due, missed or upcoming)
+ *  summary  – the single bar a collapsed phase folds into
  */
-export type MarkKind = "item" | "ghost" | "decision" | "entry" | "slot";
+export type MarkKind = "item" | "ghost" | "decision" | "entry" | "slot" | "summary";
 
 interface Mark {
 	kind: MarkKind;
@@ -36,6 +59,7 @@ interface Mark {
 	parentId?: string;
 	state?: SlotState | "pending";
 	mood?: Mood;
+	progress?: number;
 }
 
 export interface Lane {
@@ -53,6 +77,7 @@ export interface Lane {
 	contentTop: number;
 	pitch: number;
 	markH: number;
+	collapsed?: boolean;
 }
 
 export interface Placed {
@@ -63,6 +88,8 @@ export interface Placed {
 	parentId?: string;
 	state?: SlotState | "pending";
 	mood?: Mood;
+	/** Summary bars: share of the phase that's done, 0–100. */
+	progress?: number;
 	lane: Lane;
 	row: number;
 	startDay: number;
@@ -81,6 +108,8 @@ export interface Placed {
 }
 
 export interface Layout {
+	/** The geometry this layout was computed with. */
+	g: Geometry;
 	viewStart: number;
 	viewEnd: number;
 	pxPerDay: number;
@@ -102,6 +131,7 @@ export interface LayoutOptions {
 	showJournal?: boolean;
 	/** Today as a day number, for check-in and decision states. */
 	today?: number;
+	density?: Density;
 	measure: (text: string, weight?: number, size?: number) => number;
 }
 
@@ -129,10 +159,10 @@ export function itemDays(item: GanttItem): [number, number] {
 }
 
 /** Greedy interval packing: returns the row index for each [from, to] in input order. */
-function pack(intervals: [number, number][]): number[] {
+function pack(intervals: [number, number][], gap: number): number[] {
 	const rowEnds: number[] = [];
 	return intervals.map(([from, to]) => {
-		let row = rowEnds.findIndex((end) => end + G.packGap <= from);
+		let row = rowEnds.findIndex((end) => end + gap <= from);
 		if (row === -1) {
 			row = rowEnds.length;
 			rowEnds.push(to);
@@ -142,13 +172,14 @@ function pack(intervals: [number, number][]): number[] {
 }
 
 export function computeLayout(project: Project, opts: LayoutOptions): Layout {
+	const g = geometry(opts.density ?? project.density);
 	const [viewStart, viewEnd] = viewRange(project);
 	const ppd = opts.pxPerDay;
 	const width = (viewEnd - viewStart + 1) * ppd;
 	const xOf = (day: number) => (day - viewStart) * ppd;
 	const dayAt = (x: number) => viewStart + Math.floor(x / ppd);
 	const showWeeks = ppd >= 4.5;
-	const headerH = G.yearRowH + G.monthRowH + (showWeeks ? G.weekRowH : 0);
+	const headerH = g.yearRowH + g.monthRowH + (showWeeks ? g.weekRowH : 0);
 
 	const phaseIds = new Set(project.phases.map((p) => p.id));
 	const today = opts.today ?? toDay(new Date().toISOString().slice(0, 10));
@@ -177,7 +208,7 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 			});
 	}
 
-	const groups: { kind: LaneKind; key: string; phase?: Phase; marks: Mark[]; items: GanttItem[] }[] = [];
+	const groups: { kind: LaneKind; key: string; phase?: Phase; marks: Mark[]; items: GanttItem[]; collapsed?: boolean }[] = [];
 	const locations = project.items.filter((i) => i.type === "location");
 	const keyDates = project.items.filter((i) => i.type === "event" || i.type === "deadline");
 	if (locations.length || opts.showEmptyLanes) groups.push({ kind: "locations", key: "locations", items: locations, marks: asMarks(locations) });
@@ -196,6 +227,10 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 	const inPhase = (i: GanttItem) => i.type === "task" || i.type === "milestone";
 	for (const phase of project.phases) {
 		const items = project.items.filter((i) => inPhase(i) && i.phase === phase.id);
+		if (phase.collapsed) {
+			groups.push({ kind: "phase", key: phase.id, phase, items, collapsed: true, marks: summaryMarks(phase, items) });
+			continue;
+		}
 		groups.push({
 			kind: "phase", key: phase.id, phase, items,
 			marks: [...asMarks(items), ...ghosts.filter((g) => g.item.phase === phase.id)],
@@ -214,11 +249,14 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 
 	for (const group of groups) {
 		const strip = group.kind === "locations" || group.kind === "keydates" || group.kind === "journal";
-		const pitch = strip ? G.stripPitch : G.rowPitch;
-		const markH = strip ? G.stripH : G.barH;
+		const pitch = strip ? g.stripPitch : g.rowPitch;
+		const markH = strip ? g.stripH : g.barH;
 		const journal = group.kind === "journal";
+		// The journal lane and collapsed phases are one flat row; milestones there go unlabelled (tooltips still work).
+		const flat = journal || !!group.collapsed;
 
 		const sorted = [...group.marks].sort((ma, mb) => {
+			if (ma.kind === "summary" || mb.kind === "summary") return ma.kind === "summary" ? -1 : 1;
 			const [as, ae] = itemDays(ma.item);
 			const [bs, be] = itemDays(mb.item);
 			return as - bs || be - bs - (ae - as) || ma.item.title.localeCompare(mb.item.title);
@@ -229,9 +267,9 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 			const item = mark.item;
 			const [s, e] = itemDays(item);
 			const done = mark.kind === "item" && isDone(item);
-			const label = journal ? "" : (done ? "✓ " : "") + (item.title || "Untitled");
+			const label = journal || (flat && mark.kind !== "summary") ? "" : (done ? "✓ " : "") + (item.title || "Untitled");
 			const weight = item.type === "deadline" || item.type === "location" ? 600 : 500;
-			const labelW = label ? opts.measure(label, weight) : 0;
+			const labelW = label ? opts.measure(label, weight, g.fontSize) : 0;
 			let x0: number, x1: number, labelX: number, labelInside = false, labelAnchor: "start" | "end" = "start";
 			if (item.type === "task" || item.type === "location") {
 				x0 = xOf(s);
@@ -240,27 +278,27 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 				if (labelW + pad <= x1 - x0) {
 					labelInside = true;
 					labelX = x0 + (item.type === "location" ? 20 : 7);
-				} else labelX = x1 + G.labelGap;
+				} else labelX = x1 + g.labelGap;
 			} else {
 				const cx = xOf(s) + ppd / 2;
 				const r = item.type === "milestone" ? 7 : 6;
 				x0 = cx - r;
 				x1 = cx + r;
-				labelX = x1 + G.labelGap;
+				labelX = x1 + g.labelGap;
 			}
 			if (!labelInside && labelX + labelW + 4 > width) {
 				labelAnchor = "end";
-				labelX = x0 - G.labelGap;
+				labelX = x0 - g.labelGap;
 			}
 			const from = labelInside ? x0 : Math.min(x0, labelAnchor === "end" ? labelX - labelW : x0);
 			const to = labelInside ? x1 : Math.max(x1, labelAnchor === "start" ? labelX + labelW : x1);
 			return { mark, item, s, e, label, labelW, x0, x1, labelX, labelInside, labelAnchor, from, to };
 		});
 		// The journal lane is a single row of small markers; everything else is packed.
-		const rows = journal ? pre.map(() => 0) : pack(pre.map((p) => [p.from, p.to]));
+		const rows = flat ? pre.map(() => 0) : pack(pre.map((p) => [p.from, p.to]), g.packGap);
 		const rowCount = Math.max(1, ...rows.map((r) => r + 1));
 		const contentH = rowCount * pitch - (pitch - markH);
-		const height = Math.max(strip ? 36 : G.minLaneH, contentH + G.lanePad * 2);
+		const height = Math.max(strip ? 36 : group.collapsed ? g.minLaneH - 12 : g.minLaneH, contentH + g.lanePad * 2);
 		const contentTop = y + (height - contentH) / 2;
 
 		const lane: Lane = {
@@ -272,7 +310,8 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 				group.kind === "keydates" ? "Key dates" :
 				group.kind === "journal" ? "Journal" :
 				group.kind === "unassigned" ? "Other" : group.phase!.name,
-			subtitle: laneSubtitle(group.kind, group.items, project),
+			subtitle: group.collapsed ? `Folded · ${group.items.length} item${group.items.length === 1 ? "" : "s"}` : laneSubtitle(group.kind, group.items, project),
+			collapsed: group.collapsed,
 			color: group.phase?.color,
 			y,
 			height,
@@ -290,6 +329,7 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 				parentId: p.mark.parentId,
 				state: p.mark.state,
 				mood: p.mark.mood,
+				progress: p.mark.progress,
 				item: p.item,
 				lane,
 				row: rows[i],
@@ -309,7 +349,33 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 		y += height;
 	}
 
-	return { viewStart, viewEnd, pxPerDay: ppd, width, headerH, bodyH: y, showWeeks, lanes, placed, xOf, dayAt };
+	return { g, viewStart, viewEnd, pxPerDay: ppd, width, headerH, bodyH: y, showWeeks, lanes, placed, xOf, dayAt };
+}
+
+/** A collapsed phase: one bar over its whole span (with overall progress) plus its milestones. */
+function summaryMarks(phase: Phase, items: GanttItem[]): Mark[] {
+	const live = items.filter((i) => !i.dropped);
+	if (!live.length) return [];
+	let s = Infinity, e = -Infinity, total = 0, done = 0;
+	for (const it of live) {
+		const [a, b] = itemDays(it);
+		s = Math.min(s, a);
+		e = Math.max(e, b);
+		const w = it.type === "task" ? b - a + 1 : 7;
+		total += w;
+		done += w * (isDone(it) ? 1 : it.type === "task" ? (it.progress ?? 0) / 100 : 0);
+	}
+	const progress = total ? Math.round((done / total) * 100) : 0;
+	const tasks = live.filter((i) => i.type === "task").length;
+	const summary: Mark = {
+		kind: "summary",
+		progress,
+		item: {
+			id: `phase~${phase.id}`, type: "task", phase: phase.id, start: fromDayIso(s), end: fromDayIso(e),
+			title: `${tasks} task${tasks === 1 ? "" : "s"} · ${progress}% done`,
+		},
+	};
+	return [summary, ...live.filter((i) => i.type === "milestone").map((item): Mark => ({ kind: "item", item }))];
 }
 
 function fromDayIso(day: number): string {

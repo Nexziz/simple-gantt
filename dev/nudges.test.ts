@@ -3,6 +3,7 @@ import { toDay } from "../src/core/dates";
 import { checkInSlots, dueCheckIn, slotStates } from "../src/core/journal";
 import { computeNudges, nextDeadline, overallProgress, rippleShift } from "../src/core/nudges";
 import { normalizeProject, toPlain } from "../src/core/serialize";
+import { addLink, enforceLinks, linkConflicts } from "../src/core/links";
 import { cloneProject } from "../src/core/types";
 import { SAMPLE } from "./sample";
 
@@ -92,5 +93,51 @@ t("plan B, reviews, journal survive a save/load round trip", () => {
 	assert.deepEqual(back.journal, p.journal);
 });
 
-console.log(failed ? `\n${failed} failed` : `\nall nudge/journal tests passed`);
+t("links: pushing a predecessor pushes its successors, transitively", () => {
+	const p = cloneProject(SAMPLE);
+	assert.ok(addLink(p, "c1", "d1")); // Transcription after Interviews 1
+	assert.ok(addLink(p, "d1", "e2")); // Results after Transcription
+	const c1 = p.items.find((i) => i.id === "c1")!;
+	c1.end = "2027-05-20";
+	const moved = enforceLinks(p);
+	assert.equal(p.items.find((i) => i.id === "d1")!.start, "2027-05-21");
+	assert.ok(moved.includes("d1") && moved.includes("e2"));
+	assert.ok(toDay(p.items.find((i) => i.id === "e2")!.start) > toDay(p.items.find((i) => i.id === "d1")!.end!));
+});
+
+t("links: no loops, no duplicates, milestones can share the end day", () => {
+	const p = cloneProject(SAMPLE);
+	assert.ok(addLink(p, "a2", "a3"));
+	assert.equal(addLink(p, "a3", "a2"), false);
+	assert.equal(addLink(p, "a2", "a3"), false);
+	p.items.find((i) => i.id === "a3")!.start = "2026-12-01";
+	enforceLinks(p);
+	assert.equal(p.items.find((i) => i.id === "a3")!.start, "2026-12-18");
+});
+
+t("links: a deadline never moves; a late predecessor becomes a conflict nudge", () => {
+	const p = cloneProject(SAMPLE);
+	addLink(p, "f2", "k2"); // Submission after Proofread
+	p.items.find((i) => i.id === "f2")!.end = "2027-09-03";
+	enforceLinks(p);
+	assert.equal(p.items.find((i) => i.id === "k2")!.start, "2027-08-27");
+	assert.equal(linkConflicts(p).length, 1);
+	assert.ok(computeNudges(p, today).some((n) => n.kind === "conflict"));
+});
+
+t("links, buffers and collapsed phases survive a round trip; dangling links are dropped", () => {
+	const p = cloneProject(SAMPLE);
+	addLink(p, "c1", "d1");
+	p.items.push({ id: "buf", type: "task", title: "Buffer", start: "2027-07-01", end: "2027-07-14", phase: "writing", buffer: true });
+	p.phases[0].collapsed = true;
+	const plain = JSON.parse(JSON.stringify(toPlain(p)));
+	plain.items.find((i: any) => i.id === "d2").after = ["missing"];
+	const back = normalizeProject(plain);
+	assert.deepEqual(back.items.find((i) => i.id === "d1")!.after, ["c1"]);
+	assert.equal(back.items.find((i) => i.id === "d2")!.after, undefined);
+	assert.equal(back.items.find((i) => i.id === "buf")!.buffer, true);
+	assert.equal(back.phases[0].collapsed, true);
+});
+
+console.log(failed ? `\n${failed} failed` : `\nall nudge/journal/link tests passed`);
 if (failed) process.exit(1);

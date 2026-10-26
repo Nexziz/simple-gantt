@@ -1,6 +1,7 @@
 import { fromDay, isIsoDate, toDay } from "./dates";
+import { pruneLinks } from "./links";
 import {
-	CHECKIN_LABELS, COLOR_ORDER, CheckIn, ColorName, GanttItem, ITEM_TYPES, ItemType, JournalEntry, Mood, Project,
+	CHECKIN_LABELS, COLOR_ORDER, CheckIn, ColorName, GanttItem, ITEM_TYPES, ItemType, JournalEntry, Mood, Phase, Project,
 	isCheckable, isRangeType, newId, slugify,
 } from "./types";
 
@@ -96,7 +97,9 @@ export function normalizeProject(raw: unknown, fallbackTitle = "Untitled project
 		const color = (COLOR_ORDER as string[]).includes(String(o.color))
 			? (o.color as ColorName)
 			: COLOR_ORDER[project.phases.length % COLOR_ORDER.length];
-		project.phases.push({ id, name, color });
+		const phase: Phase = { id, name, color };
+		if (o.collapsed === true || String(o.collapsed) === "true") phase.collapsed = true;
+		project.phases.push(phase);
 	}
 
 	const itemIds = new Set<string>();
@@ -153,6 +156,11 @@ export function normalizeProject(raw: unknown, fallbackTitle = "Untitled project
 			}
 		}
 		if (o.dropped === true || String(o.dropped) === "true") item.dropped = true;
+		if (Array.isArray(o.after)) {
+			const after = o.after.map((x) => asText(x)).filter((x): x is string => !!x);
+			if (after.length) item.after = after;
+		}
+		if (type === "task" && (o.buffer === true || String(o.buffer) === "true")) item.buffer = true;
 		project.items.push(item);
 	}
 
@@ -170,6 +178,8 @@ export function normalizeProject(raw: unknown, fallbackTitle = "Untitled project
 		journal.push(entry);
 	}
 	if (journal.length) project.journal = journal;
+	if (r.density === "compact") project.density = "compact";
+	pruneLinks(project);
 	return project;
 }
 
@@ -185,7 +195,7 @@ export function toPlain(project: Project): Record<string, unknown> {
 	if (project.author) out.author = project.author;
 	out.start = project.start;
 	out.end = project.end;
-	out.phases = project.phases.map((p) => ({ id: p.id, name: p.name, color: p.color }));
+	out.phases = project.phases.map((p) => ({ id: p.id, name: p.name, color: p.color, ...(p.collapsed ? { collapsed: true } : {}) }));
 	const sorted = [...project.items].sort((a, b) => a.start.localeCompare(b.start) || a.title.localeCompare(b.title));
 	out.items = sorted.map((i) => {
 		const o: Record<string, unknown> = { title: i.title, type: i.type };
@@ -207,10 +217,13 @@ export function toPlain(project: Project): Record<string, unknown> {
 			o.planB = pb;
 		}
 		if (i.dropped) o.dropped = true;
+		if (i.buffer) o.buffer = true;
+		if (i.after?.length) o.after = [...i.after];
 		o.id = i.id;
 		return o;
 	});
 	if (project.checkin) out.checkin = project.checkin;
+	if (project.density) out.density = project.density;
 	if (project.journal?.length)
 		out.journal = [...project.journal]
 			.sort((a, b) => a.date.localeCompare(b.date))

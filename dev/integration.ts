@@ -162,6 +162,52 @@ function check(cond: unknown, msg: string) {
 		check(md?.includes("Great supervisor meeting today") && md.includes("Smoother than expected"), "journal saves as a Markdown note");
 		await sleep(600);
 		check((await read()).includes("checkin: weekly"), "check-in rhythm saved");
+
+		// ── 0.3: links, folding, buffers, keyboard, help, spacing ──
+		key("Escape");
+		type("Draft chapter 3 1 Mar – 31 Mar #teach");
+		type("Edit chapter 3 1 Apr – 20 Apr #teach");
+		const draft = proj().items.find((i: any) => i.title === "Draft chapter 3");
+		const edit = proj().items.find((i: any) => i.title === "Edit chapter 3");
+		board.linkItems(draft.id, edit.id);
+		check(edit.after?.includes(draft.id) && document.querySelector(".sg-link"), "linking draws an arrow");
+		board["select"](draft.id);
+		const editStart = edit.start;
+		key("ArrowRight", { shiftKey: true });
+		key("ArrowRight", { shiftKey: true });
+		key("ArrowRight", { shiftKey: true });
+		check(draft.start.endsWith("-22") || draft.start > "2027-03-21", `Shift+→ moves a week at a time (${draft.start})`);
+		check(edit.start > editStart, `moving a task pushes what's linked after it (${editStart} → ${edit.start})`);
+		await sleep(600);
+		check(new RegExp(`after:\\n\\s+- ${draft.id}`).test(await read()), "links saved in the note");
+
+		type("~ 21 Apr – 4 May #teach");
+		const buf = proj().items.find((i: any) => i.buffer);
+		check(buf?.title === "Buffer" && buf.type === "task", "'~' quick-adds buffer time");
+
+		const teach = proj().phases.find((ph: any) => ph.name === "Teaching");
+		(document.querySelector(`.sg-lane-label[data-lane="${teach.id}"] .sg-lane-hitbox`) as SVGElement)
+			.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+		check(teach.collapsed === true && document.querySelector('.sg-item[data-kind="summary"]'), "clicking a phase folds it into a summary bar");
+		(document.querySelector('.sg-item[data-kind="summary"]') as SVGElement).dispatchEvent(new MouseEvent("click", { bubbles: true }));
+		check(!teach.collapsed, "clicking the summary unfolds it");
+		key("f");
+		check(proj().phases.every((ph: any) => ph.collapsed), "F folds every phase");
+		key("f");
+
+		(document.querySelector(`.sg-lane-label[data-lane="${teach.id}"] .sg-lane-add`) as SVGElement)
+			.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+		check(input.value === ` #${teach.id}` && document.activeElement === input, "a row's + sets up quick add for that phase");
+		input.value = "";
+
+		key("?");
+		check(document.querySelector(".sg-help .sg-help-row"), "? opens the how-to card");
+		key("Escape");
+
+		board["openProjectPanel"]();
+		([...document.querySelectorAll(".sg-seg-wide button")].find((b) => b.textContent === "Compact") as HTMLButtonElement).click();
+		await sleep(600);
+		check((await read()).includes("density: compact"), "spacing preference saved");
 		log.push(`notices: ${JSON.stringify(notices)}`);
 		(window as any).__note = await app.vault.read(file);
 	} catch (e) {

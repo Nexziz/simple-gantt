@@ -26,6 +26,8 @@ export interface Phase {
 	id: string;
 	name: string;
 	color: ColorName;
+	/** Folded into one summary row. */
+	collapsed?: boolean;
 }
 
 export interface GanttItem {
@@ -54,6 +56,10 @@ export interface GanttItem {
 	planB?: PlanB;
 	/** Set when Plan B replaced this item; it stays on the chart, faded and struck through. */
 	dropped?: boolean;
+	/** Ids of items this one starts after (finish-to-start links). */
+	after?: string[];
+	/** Tasks only: slack kept free to absorb delays, drawn hatched. */
+	buffer?: boolean;
 }
 
 /** 1 = rough … 5 = great. */
@@ -123,6 +129,8 @@ export interface Project {
 	/** How often the journal asks for a check-in. */
 	checkin?: CheckIn;
 	journal?: JournalEntry[];
+	/** Row spacing; comfortable when unset. */
+	density?: "compact";
 }
 
 export function newId(): string {

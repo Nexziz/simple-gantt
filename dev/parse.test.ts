@@ -25,6 +25,8 @@ const cases: [string, Record<string, unknown>][] = [
 	["Write blog post", { title: "Write blog post", start: "2026-10-26", end: "2026-11-08", dateGuessed: true }],
 	["Prepare slides tomorrow", { title: "Prepare slides", start: "2026-10-27", end: "2026-10-27" }],
 	["Data analysis #anal May–Jun", { phase: "analysis" }],
+	["~ 1–14 Jul #writ", { type: "task", buffer: true, title: "Buffer", start: "2027-07-01", end: "2027-07-14", phase: "writing" }],
+	["~Slack before submission Aug", { buffer: true, title: "Slack before submission", start: "2027-08-01", end: "2027-08-31" }],
 	["Dec – Jan holidays", { title: "holidays", start: "2026-12-01", end: "2027-01-31" }],
 ];
 

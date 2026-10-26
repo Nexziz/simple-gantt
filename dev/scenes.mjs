@@ -60,6 +60,25 @@ const scenes = {
 		await page.locator(".sg-composer textarea").fill("Narrowed the question down to rural energy cooperatives. Feels doable!");
 		await page.waitForTimeout(300);
 	},
+	async "15-folded"(page) {
+		await page.click('.sg-lane-label[data-lane="literature"] .sg-lane-hitbox');
+		await page.click('.sg-lane-label[data-lane="methodology"] .sg-lane-hitbox');
+		await page.waitForTimeout(300);
+	},
+	async "16-help"(page) {
+		await page.click('[aria-label="How to use (?)"]');
+		await page.waitForTimeout(300);
+	},
+	async "17-link-drag"(page) {
+		const bar = page.locator('.sg-item[data-id="d1"] rect.sg-mark');
+		await bar.hover();
+		const dot = await page.locator('.sg-item[data-id="d1"] .sg-connector circle').first().boundingBox();
+		const target = await page.locator('.sg-item[data-id="e2"] rect.sg-mark').boundingBox();
+		await page.mouse.move(dot.x + dot.width / 2, dot.y + dot.height / 2);
+		await page.mouse.down();
+		for (let i = 1; i <= 10; i++) await page.mouse.move(dot.x + (target.x + 30 - dot.x) * (i / 10), dot.y + (target.y + 10 - dot.y) * (i / 10));
+		await page.waitForTimeout(150);
+	},
 	async "14-ripple"(page) {
 		const box = await page.locator('.sg-item[data-id="b3"] rect.sg-mark').boundingBox();
 		const y = box.y + box.height / 2;

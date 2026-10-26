@@ -1,9 +1,10 @@
 import { MONTHS_LONG, formatDay, formatDuration, formatRange, fromDay, toDay, ymd } from "../core/dates";
 import { PROMPTS, REVIEW_PROMPTS, prompt, slotStates } from "../core/journal";
 import { Nudge, computeNudges, nextDeadline, overallProgress, rippleShift } from "../core/nudges";
-import { G, Layout, Placed, computeLayout } from "../core/layout";
+import { addLink, enforceLinks, predecessorsOf, pruneLinks, removeLink, successorsOf, wouldCycle } from "../core/links";
+import { Layout, Placed, computeLayout } from "../core/layout";
 import { ParseResult, parseQuickAdd } from "../core/parse";
-import { MOOD_COLORS, makeMeasure, paintBody, paintHeader, paintLabels, renderExportSvg, svgEl, svgToPng, svgToString } from "../core/render";
+import { MOOD_COLORS, connectorX, makeMeasure, paintBody, paintHeader, paintLabels, renderExportSvg, svgEl, svgToPng, svgToString } from "../core/render";
 import { TEMPLATES, TemplateId } from "../core/templates";
 import { Theme, themeFromCss } from "../core/theme";
 import {
@@ -41,7 +42,7 @@ const MAX_PPD = 48;
 
 interface Drag {
 	pointerId: number;
-	kind: "move" | "start" | "end" | "create";
+	kind: "move" | "start" | "end" | "create" | "link";
 	startX: number;
 	startY: number;
 	moved: boolean;
@@ -51,6 +52,8 @@ interface Drag {
 	anchorDay?: number;
 	currentDay?: number;
 	snapshot?: Project;
+	/** Link drags: the item under the pointer. */
+	targetId?: string | null;
 }
 
 type El = HTMLElement;
@@ -125,6 +128,7 @@ export class GanttBoard {
 	private zoomBtns = new Map<Zoom, El>();
 	private undoBtn!: HTMLButtonElement;
 	private stats!: El;
+	private foldBtn!: El;
 	private nudgeBar!: El;
 	private quick!: El;
 	private quickInput!: HTMLInputElement;
@@ -216,6 +220,11 @@ export class GanttBoard {
 		journalBtn.addEventListener("click", () => (this.panelMode === "journal" ? this.closePanel() : this.openJournal()));
 		const settingsBtn = h("button", { cls: "sg-btn sg-icon-btn", kids: [icon("settings")], attrs: { "aria-label": "Project settings" } }, this.toolbar);
 		settingsBtn.addEventListener("click", () => this.openProjectPanel());
+		this.foldBtn = h("button", { cls: "sg-btn sg-icon-btn", kids: [icon("fold")], attrs: { "aria-label": "Fold all phases (F)" } }, this.toolbar);
+		this.foldBtn.addEventListener("click", () => this.toggleFoldAll());
+		this.toolbar.insertBefore(this.foldBtn, settingsBtn);
+		const helpBtn = h("button", { cls: "sg-btn sg-icon-btn", kids: [icon("help")], attrs: { "aria-label": "How to use (?)" } }, this.toolbar);
+		helpBtn.addEventListener("click", () => this.openHelp(helpBtn));
 
 		// Quick add
 		this.quick = h("div", { cls: "sg-quick" }, r);
@@ -255,6 +264,7 @@ export class GanttBoard {
 		this.corner = h("div", { cls: "sg-corner" }, this.canvas);
 		this.headerWrap = h("div", { cls: "sg-header" }, this.canvas);
 		this.labelsWrap = h("div", { cls: "sg-labels" }, this.canvas);
+		this.labelsWrap.addEventListener("click", (e) => this.onLabelClick(e));
 		this.bodyWrap = h("div", { cls: "sg-body" }, this.canvas);
 		this.tooltip = h("div", { cls: "sg-tooltip" }, r);
 		this.panel = h("div", { cls: "sg-panel", attrs: { "aria-hidden": "true" } }, r);
@@ -272,6 +282,8 @@ export class GanttBoard {
 		this.root.addEventListener("keydown", (e) => this.onKey(e));
 		this.root.addEventListener("pointerdown", (e) => {
 			if (this.menu && !this.menu.contains(e.target as Node)) this.closeMenu();
+			// Clicking the chart gives the board keyboard focus (arrows, Space, F, J…).
+			if ((e.target as Element).closest(".sg-scroller")) this.root.focus({ preventScroll: true });
 		});
 		this.syncQuick();
 	}
@@ -293,7 +305,7 @@ export class GanttBoard {
 	// ─── Rendering ─────────────────────────────────────────────────────────
 
 	private labelWidth(): number {
-		return this.root.clientWidth < 640 ? 148 : 212;
+		return this.root.clientWidth < 640 ? 152 : 236;
 	}
 
 	private fitPpd(zoom: Zoom): number {
@@ -310,6 +322,10 @@ export class GanttBoard {
 		const p = this.project;
 		this.titleBtn.replaceChildren(span(p?.title ?? "Simple Gantt", "sg-title-text"), icon("chevronDown", 14));
 		for (const [z, b] of this.zoomBtns) b.classList.toggle("is-active", z === this.zoom);
+		const allFolded = !!p?.phases.length && p.phases.every((ph) => ph.collapsed);
+		this.foldBtn.replaceChildren(icon(allFolded ? "unfold" : "fold"));
+		this.foldBtn.setAttribute("aria-label", allFolded ? "Unfold all phases (F)" : "Fold all phases (F)");
+		this.foldBtn.classList.toggle("is-active", allFolded);
 		this.undoBtn.disabled = !this.undoStack.length;
 		if (!p) {
 			this.layout = null;
@@ -425,8 +441,12 @@ export class GanttBoard {
 
 	private commit() {
 		if (!this.project) return;
+		pruneLinks(this.project);
+		const pushed = enforceLinks(this.project);
 		this.host.save(this.project);
 		this.render();
+		if (pushed.length)
+			this.host.notify(`Moved ${pushed.length} linked item${pushed.length === 1 ? "" : "s"} later to keep the order`);
 	}
 
 	undo() {
@@ -520,7 +540,7 @@ export class GanttBoard {
 		this.quick.classList.toggle("has-preview", !!r);
 		if (!r || !this.project) return;
 		const pv = this.quickPreview;
-		h("span", { cls: `sg-pv-type sg-chip-${r.type}`, kids: [icon(r.type, 12), `${ITEM_TYPE_LABELS[r.type]}`] }, pv);
+		h("span", { cls: `sg-pv-type sg-chip-${r.type}`, kids: r.buffer ? [icon("buffer", 12), "Buffer"] : [icon(r.type, 12), `${ITEM_TYPE_LABELS[r.type]}`] }, pv);
 		h("span", { cls: "sg-pv-title", text: r.title || "Untitled" }, pv);
 		const s = toDay(r.start);
 		const e = r.end ? toDay(r.end) : s;
@@ -564,6 +584,7 @@ export class GanttBoard {
 		if (r.end) item.end = r.end;
 		if (phase) item.phase = phase;
 		if (r.progress !== undefined) item.progress = r.progress;
+		if (r.buffer) item.buffer = true;
 		this.addItem(item, openEditor);
 		this.quickInput.value = "";
 		this.syncQuick();
@@ -608,7 +629,8 @@ export class GanttBoard {
 			if (itemEl && part) {
 				const item = this.findItem(itemEl.getAttribute("data-id")!);
 				if (!item) return;
-				const kind = part.getAttribute("data-part") === "start" ? "start" : part.getAttribute("data-part") === "end" ? "end" : "move";
+				const role = part.getAttribute("data-part");
+				const kind = role === "start" ? "start" : role === "end" ? "end" : role === "link" ? "link" : "move";
 				this.drag = {
 					pointerId: e.pointerId, kind, startX: x, startY: y, moved: false, item,
 					orig: { start: item.start, end: item.end, phase: item.phase },
@@ -635,6 +657,7 @@ export class GanttBoard {
 			if (kind === "ghost" || kind === "decision") this.select(el.getAttribute("data-parent"), true, "planb");
 			else if (kind === "entry") this.openJournal({ entryId: id.replace(/^journal~/, "") });
 			else if (kind === "slot") this.openJournal({ date: fromDay(+id.replace(/^slot~/, "")) });
+			else if (kind === "summary") this.setFolded(id.replace(/^phase~/, ""), false);
 		});
 
 		body.addEventListener("pointermove", (e) => {
@@ -650,6 +673,10 @@ export class GanttBoard {
 				d.moved = true;
 				d.snapshot = cloneProject(this.project);
 				this.root.classList.add("is-dragging");
+			}
+			if (d.kind === "link") {
+				this.paintLinkDrag(d, x, y, e);
+				return;
 			}
 			if (d.kind === "create") {
 				d.currentDay = this.layout.dayAt(x);
@@ -676,12 +703,17 @@ export class GanttBoard {
 			else en = Math.max(s0, e0 + delta);
 			item.start = fromDay(s);
 			if (isRangeType(item.type)) item.end = fromDay(en);
+			const pushed = enforceLinks(this.project).filter((id) => id !== item.id).length;
 			this.render();
+			this.paintDragGuides(item);
 			const label = isRangeType(item.type) ? `${formatRange(s, en)} · ${formatDuration(en - s + 1)}` : formatDay(s);
 			const extra = d.kind !== "move" ? null : e.shiftKey
 				? h("span", { cls: "sg-tt-ripple", kids: [icon("push", 12), `Moving ${rippled} later item${rippled === 1 ? "" : "s"} too`] })
 				: span("Hold Shift to move everything after it", "sg-tt-hint");
-			this.showTooltip(e, [h("b", { text: item.title }), span(label), extra]);
+			const pushedNote = pushed && !e.shiftKey
+				? h("span", { cls: "sg-tt-ripple", kids: [icon("branch", 12), `Pushes ${pushed} linked item${pushed === 1 ? "" : "s"}`] })
+				: null;
+			this.showTooltip(e, [h("b", { text: item.title }), span(label), pushedNote, extra]);
 		});
 
 		const finish = (e: PointerEvent) => {
@@ -696,6 +728,13 @@ export class GanttBoard {
 				if (d.moved) this.createFromDrag(d);
 				return;
 			}
+			if (d.kind === "link") {
+				this.bodyWrap.querySelector(".sg-link-drag")?.remove();
+				if (d.item && d.targetId) this.linkItems(d.item.id, d.targetId);
+				else if (!d.moved) this.host.notify("Drag the dot onto another item to link them");
+				this.render();
+				return;
+			}
 			if (d.moved) {
 				this.undoStack.push(JSON.stringify(d.snapshot));
 				this.redoStack = [];
@@ -703,7 +742,9 @@ export class GanttBoard {
 				this.commit();
 				if (this.panelMode === "item" && this.selectedId === d.item?.id) this.refreshPanel();
 			} else if (d.item) {
-				this.select(d.item.id, true);
+				// Plain click: open the panel but keep focus on the board so arrow keys and Space work.
+				this.select(d.item.id, true, null);
+				this.root.focus({ preventScroll: true });
 			}
 		};
 		body.addEventListener("pointerup", finish);
@@ -738,7 +779,7 @@ export class GanttBoard {
 		const x0 = this.layout.xOf(a);
 		const color = lane.color ? this.theme.palette[lane.color] : this.theme.inkSecondary;
 		svgEl("rect", {
-			class: "sg-ghost", x: x0, y: lane.y + lane.height / 2 - G.barH / 2, width: Math.max(3, this.layout.xOf(b + 1) - x0), height: G.barH,
+			class: "sg-ghost", x: x0, y: lane.y + lane.height / 2 - this.layout.g.barH / 2, width: Math.max(3, this.layout.xOf(b + 1) - x0), height: this.layout.g.barH,
 			rx: 4, fill: color, "fill-opacity": 0.25, stroke: color, "stroke-dasharray": "4 3", "pointer-events": "none",
 		}, svg);
 	}
@@ -759,6 +800,9 @@ export class GanttBoard {
 
 	private hover(e: PointerEvent) {
 		const itemEl = (e.target as Element).closest(".sg-item");
+		const id = itemEl?.getAttribute("data-id") ?? null;
+		this.bodyWrap.querySelectorAll(".sg-link.is-hot").forEach((l) => l.classList.remove("is-hot"));
+		if (id) this.bodyWrap.querySelectorAll(".sg-link").forEach((l) => l.getAttribute("data-link")?.split(" ").includes(id) && l.classList.add("is-hot"));
 		const p = itemEl && this.layout?.placed.find((x) => x.item.id === itemEl.getAttribute("data-id"));
 		if (!p) return this.hideTooltip();
 		this.showTooltip(e, this.tooltipContent(p));
@@ -835,6 +879,215 @@ export class GanttBoard {
 		this.tooltip.classList.remove("is-visible");
 	}
 
+	// ─── Folding, row actions, nudging, help ────────────────────────────────
+
+	private onLabelClick(e: MouseEvent) {
+		const target = e.target as Element;
+		const laneKey = target.closest("[data-lane]")?.getAttribute("data-lane");
+		const action = target.closest("[data-action]")?.getAttribute("data-action");
+		if (!laneKey || !this.project) return;
+		if (action === "add") return this.addToLane(laneKey);
+		if (action === "toggle") {
+			const phase = this.project.phases.find((ph) => ph.id === laneKey);
+			if (phase) this.setFolded(phase.id, !phase.collapsed);
+		}
+	}
+
+	setFolded(phaseId: string, folded: boolean) {
+		const phase = this.project?.phases.find((ph) => ph.id === phaseId);
+		if (!phase || !!phase.collapsed === folded) return;
+		this.mutate(() => {
+			if (folded) phase.collapsed = true;
+			else delete phase.collapsed;
+		});
+	}
+
+	toggleFoldAll() {
+		const p = this.project;
+		if (!p?.phases.length) return;
+		const fold = !p.phases.every((ph) => ph.collapsed);
+		this.mutate(() => p.phases.forEach((ph) => (fold ? (ph.collapsed = true) : delete ph.collapsed)));
+		this.host.notify(fold ? "Folded every phase into one summary bar. Press F to unfold." : "Unfolded all phases");
+	}
+
+	/** The "+" on a row: set up quick add for that row and put the cursor where the title goes. */
+	private addToLane(laneKey: string) {
+		const lane = this.layout?.lanes.find((l) => l.key === laneKey);
+		if (!lane) return;
+		let prefill = "";
+		if (lane.kind === "phase") {
+			this.quickType = "task";
+			prefill = ` #${laneKey}`;
+			this.activePhase = laneKey;
+		} else if (lane.kind === "keydates") this.quickType = "deadline";
+		else if (lane.kind === "locations") this.quickType = "location";
+		else if (lane.kind === "journal") prefill = "> ";
+		this.quickInput.value = prefill;
+		this.syncQuick();
+		this.quickInput.focus();
+		const caret = lane.kind === "journal" ? prefill.length : 0;
+		this.quickInput.setSelectionRange(caret, caret);
+		this.quick.classList.remove("sg-flash");
+		void this.quick.offsetWidth;
+		this.quick.classList.add("sg-flash");
+	}
+
+	/** Arrow keys: ←/→ move a day (Shift: a week), Alt+←/→ resize, ↑/↓ change phase. */
+	private nudgeItem(item: GanttItem, key: string, week: boolean, resize: boolean) {
+		const p = this.project;
+		if (!p) return;
+		const step = week ? 7 : 1;
+		if (key === "ArrowLeft" || key === "ArrowRight") {
+			const delta = key === "ArrowLeft" ? -step : step;
+			this.mutate(() => {
+				if (resize && item.end) item.end = fromDay(Math.max(toDay(item.start), toDay(item.end) + delta));
+				else {
+					item.start = fromDay(toDay(item.start) + delta);
+					if (item.end) item.end = fromDay(toDay(item.end) + delta);
+				}
+			}, this.panelMode === "item");
+		} else if ((key === "ArrowUp" || key === "ArrowDown") && (item.type === "task" || item.type === "milestone")) {
+			const i = p.phases.findIndex((ph) => ph.id === item.phase);
+			const next = p.phases[i + (key === "ArrowUp" ? -1 : 1)];
+			if (!next) return;
+			this.mutate(() => (item.phase = next.id), this.panelMode === "item");
+			this.activePhase = next.id;
+		}
+		this.revealItem(item.id);
+	}
+
+	private addBufferAfter(item: GanttItem) {
+		if (!this.project) return;
+		const start = toDay(item.end ?? item.start) + (item.type === "task" ? 1 : 0);
+		const buffer: GanttItem = {
+			id: newId(), type: "task", buffer: true, title: "Buffer", phase: item.phase,
+			start: fromDay(start), end: fromDay(start + 13), after: [item.id],
+		};
+		this.snapshot();
+		this.addItem(buffer);
+		this.host.notify("Added 2 weeks of buffer. Drag its edges to resize.");
+	}
+
+	/** While dragging: dashed guides at the new start/end with the dates in the header. */
+	private paintDragGuides(item: GanttItem) {
+		const p = this.layout?.placed.find((x) => x.kind === "item" && x.item.id === item.id);
+		const body = this.bodyWrap.querySelector("svg");
+		const header = this.headerWrap.querySelector("svg");
+		if (!p || !body || !header || !this.layout) return;
+		const xs: [number, number][] = isRangeType(item.type)
+			? [[p.x0, p.startDay], [p.x1, p.endDay]]
+			: [[(p.x0 + p.x1) / 2, p.startDay]];
+		const hh = this.layout.headerH;
+		for (const [x, day] of xs) {
+			svgEl("line", { x1: x, x2: x, y1: 0, y2: this.layout.bodyH, stroke: this.theme.accent, "stroke-dasharray": "3 3", opacity: 0.6, "pointer-events": "none" }, body);
+			const label = formatDay(day, false);
+			const w = this.measure(label, 600, 11) + 14;
+			const g = svgEl("g", { class: "sg-guide", "pointer-events": "none" }, header);
+			svgEl("rect", { x: x - w / 2, y: hh - 22, width: w, height: 18, rx: 9, fill: this.theme.accent }, g);
+			const t = svgEl("text", { x, y: hh - 13, "text-anchor": "middle", "dominant-baseline": "central", fill: "#ffffff", "font-size": 11, "font-weight": 600 }, g);
+			t.textContent = label;
+		}
+	}
+
+	private openHelp(anchor: El) {
+		this.popMenu(anchor, (menu) => {
+			menu.classList.add("sg-help");
+			const section = (title: string, rows: [string, string][]) => {
+				h("div", { cls: "sg-menu-label", text: title }, menu);
+				for (const [keys, what] of rows) h("div", { cls: "sg-help-row", kids: [h("kbd", { text: keys }), span(what)] }, menu);
+			};
+			section("Add", [
+				["Type above", "e.g. “Lit review Jan–Mar #lit”"],
+				["Drag", "across an empty row to draw a task"],
+				["Double-click", "a row for a milestone or key date"],
+				["+", "on a row's label to add to that row"],
+				["! * + @ ~ >", "deadline · milestone · key date · place · buffer · journal"],
+			]);
+			section("Move", [
+				["Drag", "a bar to move it, its edges to resize"],
+				["Shift + drag", "moves everything after it too"],
+				["← →", "1 day · Shift: 1 week · Alt: resize"],
+				["↑ ↓", "move to the phase above / below"],
+			]);
+			section("Connect & tidy", [
+				["Drag the dot", "at a bar's end onto what comes next"],
+				["Click a phase", "to fold it into one summary bar · F folds all"],
+				["Space", "tick off the selected item"],
+				["J · Ctrl+Z", "journal · undo"],
+			]);
+		});
+	}
+
+	// ─── Links ─────────────────────────────────────────────────────────────
+
+	/** While dragging from a connector dot: draw a rubber band and find the item under the pointer. */
+	private paintLinkDrag(d: Drag, x: number, y: number, e: PointerEvent) {
+		const svg = this.bodyWrap.querySelector("svg");
+		const src = this.layout?.placed.find((p) => p.kind === "item" && p.item.id === d.item?.id);
+		if (!svg || !src || !this.project) return;
+		svg.querySelector(".sg-link-drag")?.remove();
+		svg.querySelectorAll(".is-link-target").forEach((el) => el.classList.remove("is-link-target"));
+		const under = this.root.ownerDocument.elementFromPoint(e.clientX, e.clientY)?.closest('.sg-item[data-kind="item"]');
+		const targetId = under?.getAttribute("data-id") ?? null;
+		const valid = !!targetId && targetId !== src.item.id && !wouldCycle(this.project, src.item.id, targetId);
+		d.targetId = valid ? targetId : null;
+		if (valid) under!.classList.add("is-link-target");
+		const g = svgEl("g", { class: "sg-link-drag", "pointer-events": "none" }, svg);
+		svgEl("path", {
+			d: `M${connectorX(src)},${src.cy} C${connectorX(src) + 60},${src.cy} ${x - 60},${y} ${x},${y}`,
+			fill: "none", stroke: this.theme.accent, "stroke-width": 2, "stroke-dasharray": "5 4",
+		}, g);
+		svgEl("circle", { cx: x, cy: y, r: 4, fill: this.theme.accent }, g);
+		const target = valid ? this.findItem(targetId!) : undefined;
+		this.showTooltip(e, target
+			? [h("b", { text: "Link" }), span(`“${target.title}” starts after “${src.item.title}”`)]
+			: [h("b", { text: "Link to…" }), span(targetId && targetId !== src.item.id ? "That would make a loop" : "Drop on the item that comes next", "sg-tt-hint")]);
+	}
+
+	/** Make `succId` start after `predId`, pushing it (and what follows) if needed. */
+	linkItems(predId: string, succId: string) {
+		if (!this.project) return;
+		const pred = this.findItem(predId);
+		const succ = this.findItem(succId);
+		if (!pred || !succ) return;
+		if (wouldCycle(this.project, predId, succId)) return this.host.notify("Can't link those: it would make a loop");
+		if (succ.after?.includes(predId)) return this.host.notify(`“${succ.title}” already starts after “${pred.title}”`);
+		this.snapshot();
+		addLink(this.project, predId, succId);
+		this.flashId = succId;
+		this.commit();
+		this.host.notify(`Linked: “${succ.title}” now starts after “${pred.title}”`);
+		if (this.panelMode === "item") this.refreshPanel();
+	}
+
+	private buildLinksSection(form: El, item: GanttItem) {
+		const p = this.project!;
+		const sec = h("div", { cls: "sg-links-sec" }, form);
+		h("div", { cls: "sg-label", text: "Starts after" }, sec);
+		const chips = h("div", { cls: "sg-link-chips" }, sec);
+		for (const pred of predecessorsOf(p, item)) {
+			const chip = h("span", { cls: "sg-link-chip", kids: [icon(pred.type, 11), span(pred.title)] }, chips);
+			const x = h("button", { cls: "sg-link-x", kids: [icon("x", 11)], attrs: { "aria-label": `Unlink ${pred.title}` } }, chip);
+			x.addEventListener("click", () => this.mutate(() => removeLink(p, pred.id, item.id), true));
+		}
+		const options = p.items
+			.filter((o) => o.id !== item.id && o.type !== "location" && !o.dropped && !item.after?.includes(o.id) && !wouldCycle(p, o.id, item.id))
+			.sort((a, b) => a.start.localeCompare(b.start));
+		if (options.length) {
+			const sel = h("select", { cls: "sg-input sg-input-sm sg-link-add" }, chips);
+			h("option", { text: item.after?.length ? "+ Another…" : "+ Pick what comes before…", attrs: { value: "" } }, sel);
+			for (const o of options) h("option", { text: `${o.title} · ${formatDay(toDay(o.end ?? o.start), false)}`, attrs: { value: o.id } }, sel);
+			sel.addEventListener("change", () => sel.value && this.linkItems(sel.value, item.id));
+		}
+		if ((item.type === "task" && !item.buffer) || item.type === "milestone") {
+			const add = h("button", { cls: "sg-link-btn", kids: [icon("buffer", 13), "Add 2 weeks of buffer after this"] }, sec);
+			add.addEventListener("click", () => this.addBufferAfter(item));
+		}
+		const next = successorsOf(p, item);
+		if (next.length) h("div", { cls: "sg-hint", text: `Followed by ${next.map((n) => `“${n.title}”`).join(", ")}` }, sec);
+		else if (!item.after?.length) h("div", { cls: "sg-hint", text: "Tip: drag the dot at the end of a bar onto another item." }, sec);
+	}
+
 	// ─── Keyboard ──────────────────────────────────────────────────────────
 
 	private onKey(e: KeyboardEvent) {
@@ -863,6 +1116,18 @@ export class GanttBoard {
 				e.preventDefault();
 				this.toggleDone(item);
 			}
+		} else if (e.key.startsWith("Arrow") && !inField && !mod && this.selectedId) {
+			const item = this.findItem(this.selectedId);
+			if (item) {
+				e.preventDefault();
+				this.nudgeItem(item, e.key, e.shiftKey, e.altKey);
+			}
+		} else if (e.key.toLowerCase() === "f" && !inField && !mod) {
+			e.preventDefault();
+			this.toggleFoldAll();
+		} else if (e.key === "?" && !inField) {
+			e.preventDefault();
+			this.openHelp(this.toolbar.querySelector('[aria-label="How to use (?)"]') as El);
 		} else if (e.key.toLowerCase() === "j" && !inField && !mod) {
 			e.preventDefault();
 			if (this.panelMode === "journal") this.closePanel();
@@ -1060,6 +1325,17 @@ export class GanttBoard {
 			});
 		}
 
+		if (item.type === "task") {
+			const row = h("label", { cls: "sg-check sg-buffer-toggle" }, form);
+			const cb = h("input", { attrs: { type: "checkbox" } }, row);
+			cb.checked = !!item.buffer;
+			h("span", { kids: [icon("buffer", 13), "Buffer time: slack kept free to absorb delays"] }, row);
+			cb.addEventListener("change", () => this.mutate(() => {
+				if (cb.checked) item.buffer = true;
+				else delete item.buffer;
+			}, true));
+		}
+		if (item.type !== "location" && item.type !== "event" && !item.dropped) this.buildLinksSection(form, item);
 		if (isCheckable(item) && !item.dropped && !isDone(item)) this.buildPlanBSection(form, item, focus === "planb");
 		if (!isDone(item) && !item.dropped) this.buildSlipSection(form, item);
 
@@ -1127,6 +1403,16 @@ export class GanttBoard {
 		this.editor(e, () => {
 			if (/^\d{4}-\d{2}-\d{2}$/.test(e.value) && e.value >= p.start) p.end = e.value;
 		}, false);
+
+		const dens = this.fieldWrap(form, "Spacing");
+		const seg = h("div", { cls: "sg-seg sg-seg-wide" }, dens);
+		for (const [value, label] of [["comfortable", "Comfortable"], ["compact", "Compact"]] as const) {
+			const b = h("button", { text: label, cls: (p.density ?? "comfortable") === value ? "is-active" : "" }, seg);
+			b.addEventListener("click", () => this.mutate(() => {
+				if (value === "compact") p.density = "compact";
+				else delete p.density;
+			}, true));
+		}
 
 		h("div", { cls: "sg-section-title", text: "Phases" }, form);
 		const list = h("div", { cls: "sg-phase-list" }, form);
@@ -1668,7 +1954,7 @@ export class GanttBoard {
 		this.nudgeIndex = Math.min(this.nudgeIndex, list.length - 1);
 		const n = list[this.nudgeIndex];
 		const card = h("div", { cls: `sg-nudge sg-nudge-${n.kind}` }, bar);
-		const iconName = n.kind === "decision" ? "branch" : n.kind === "checkin" ? "book" : n.kind === "reached" ? "party" : "deadline";
+		const iconName = n.kind === "conflict" ? "deadline" : n.kind === "decision" ? "branch" : n.kind === "checkin" ? "book" : n.kind === "reached" ? "party" : "deadline";
 		h("span", { cls: "sg-nudge-icon", kids: [icon(iconName, 16)] }, card);
 		const text = h("div", { cls: "sg-nudge-text" }, card);
 		const actions = h("div", { cls: "sg-nudge-actions" }, card);
@@ -1723,6 +2009,12 @@ export class GanttBoard {
 			t(`Did you ${what} “${n.item.title}”?`, `It was planned ${n.daysAgo === 1 ? "yesterday" : `${n.daysAgo} days ago`}.`);
 			act([icon("check", 14), span("Yes!")], () => this.toggleDone(n.item), true);
 			act(["Not yet, move it"], () => this.select(n.item.id, true, n.item.planB ? "planb" : "title"));
+		} else if (n.kind === "conflict") {
+			t("Running into a deadline", `“${n.pred.title}” now ends after “${n.item.title}” (${formatDay(toDay(n.item.start), false)}).`);
+			act(["Show"], () => {
+				this.select(n.pred.id, true);
+				this.revealItem(n.pred.id);
+			}, true);
 		} else {
 			t(`“${n.item.title}”`, n.days === 0 ? "is due today." : `is due in ${n.days} day${n.days === 1 ? "" : "s"} (${formatDay(toDay(n.item.start), false)}).`);
 			act(["Show"], () => {

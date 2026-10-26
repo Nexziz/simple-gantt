@@ -29,6 +29,8 @@ export interface ParseResult {
 	/** A #tag that matched no phase: the caller may create it. */
 	newPhase?: string;
 	progress?: number;
+	/** "~" prefix: buffer time (a task kept free to absorb delays). */
+	buffer?: boolean;
 	/** True when no date was found and defaults were used. */
 	dateGuessed: boolean;
 }
@@ -149,7 +151,14 @@ export function parseQuickAdd(input: string, ctx: ParseContext): ParseResult | n
 	// Type prefix
 	let type: ItemType = ctx.defaultType;
 	let explicitType = false;
+	let buffer = false;
 	const prefix = text.trim()[0];
+	if (prefix === "~") {
+		type = "task";
+		buffer = true;
+		explicitType = true;
+		text = " " + text.trim().slice(1) + " ";
+	}
 	const prefixes: Record<string, ItemType> = { "!": "deadline", "*": "milestone", "◆": "milestone", "+": "event", "@": "location" };
 	if (prefixes[prefix]) {
 		type = prefixes[prefix];
@@ -286,5 +295,9 @@ export function parseQuickAdd(input: string, ctx: ParseContext): ParseResult | n
 	if (phase) result.phase = phase;
 	if (newPhase) result.newPhase = newPhase;
 	if (progress !== undefined && type === "task") result.progress = progress;
+	if (buffer) {
+		result.buffer = true;
+		if (!result.title) result.title = "Buffer";
+	}
 	return result;
 }

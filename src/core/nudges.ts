@@ -1,5 +1,6 @@
 import { toDay } from "./dates";
 import { Slot, dueCheckIn } from "./journal";
+import { linkConflicts } from "./links";
 import { GanttItem, Project, isCheckable, isDone } from "./types";
 
 /**
@@ -11,6 +12,7 @@ import { GanttItem, Project, isCheckable, isDone } from "./types";
  */
 export type Nudge =
 	| { kind: "decision"; key: string; item: GanttItem }
+	| { kind: "conflict"; key: string; item: GanttItem; pred: GanttItem }
 	| { kind: "checkin"; key: string; slot: Slot }
 	| { kind: "reached"; key: string; item: GanttItem; daysAgo: number }
 	| { kind: "upcoming"; key: string; item: GanttItem; days: number };
@@ -24,6 +26,10 @@ export function computeNudges(project: Project, today: number): Nudge[] {
 		if (pb && !pb.status && !isDone(item) && toDay(pb.by) <= today)
 			out.push({ kind: "decision", key: `decision:${item.id}:${pb.by}`, item });
 	}
+
+	// A linked item that can't move (a deadline, or something finished) now comes before its predecessor ends.
+	for (const c of linkConflicts(project))
+		out.push({ kind: "conflict", key: `conflict:${c.pred.id}:${c.succ.id}:${c.pred.end ?? c.pred.start}`, item: c.succ, pred: c.pred });
 
 	const slot = dueCheckIn(project, today);
 	if (slot) out.push({ kind: "checkin", key: `checkin:${slot.day}`, slot });

@@ -23,6 +23,10 @@ const PATHS: Record<string, string> = {
 	chevronLeft: '<path d="m15 18-6-6 6-6"/>',
 	chevronRight: '<path d="m9 18 6-6-6-6"/>',
 	party: '<path d="M5.8 11.3 2 22l10.7-3.8"/><path d="M4 3h.01M22 8h.01M15 2h.01M22 20h.01"/><path d="m22 2-2.2.8a2.9 2.9 0 0 0-1.9 3.2c.1.9-.6 1.8-1.6 1.8h-.4c-.9 0-1.7.7-1.9 1.6L13 11"/><path d="M11 13c1.9 1.9 2.8 4.1 2 4.9-.8.8-3 0-4.9-2-1.9-1.9-2.8-4.1-2-4.9.8-.8 3 0 4.9 2Z"/>',
+	help: '<circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>',
+	fold: '<path d="m8 3 4 4 4-4"/><path d="m8 21 4-4 4 4"/><path d="M4 12h16"/>',
+	unfold: '<path d="m8 7 4-4 4 4"/><path d="m8 17 4 4 4-4"/><path d="M4 12h16"/>',
+	buffer: '<rect x="3" y="7" width="18" height="10" rx="2"/><path d="m7 17 6-10M12 17l6-10"/>',
 	enter: '<path d="M9 10 4 15l5 5"/><path d="M20 4v7a4 4 0 0 1-4 4H4"/>',
 	// Item types
 	task: '<rect x="3" y="8" width="18" height="8" rx="2.5" fill="currentColor" stroke="none"/>',
