@@ -27,6 +27,8 @@ const PATHS: Record<string, string> = {
 	fold: '<path d="m8 3 4 4 4-4"/><path d="m8 21 4-4 4 4"/><path d="M4 12h16"/>',
 	unfold: '<path d="m8 7 4-4 4 4"/><path d="m8 17 4 4 4-4"/><path d="M4 12h16"/>',
 	buffer: '<rect x="3" y="7" width="18" height="10" rx="2"/><path d="m7 17 6-10M12 17l6-10"/>',
+	hand: '<path d="M18 11V6a2 2 0 0 0-4 0v5"/><path d="M14 10V4a2 2 0 0 0-4 0v6"/><path d="M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/>',
+	drawTask: '<rect x="3" y="9" width="12" height="6" rx="2" fill="currentColor" stroke="none"/><path d="M19 6v6M16 9h6"/>',
 	pencil: '<path d="M17 3a2.85 2.85 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/>',
 	route: '<circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="5" r="2.5"/><path d="M8.5 19H17a3.5 3.5 0 0 0 0-7H7a3.5 3.5 0 0 1 0-7h8.5"/>',
 	baseline: '<rect x="3" y="5" width="12" height="5" rx="1.5" stroke-dasharray="2.5 2"/><rect x="8" y="14" width="13" height="5" rx="1.5" fill="currentColor" stroke="none"/><path d="M15 10.5v2"/>',

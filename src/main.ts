@@ -1,24 +1,28 @@
 import { Notice, Plugin, TFile, addIcon, normalizePath, parseYaml, stringifyYaml } from "obsidian";
 import { todayIso, toDay } from "./core/dates";
 import { renderExportSvg } from "./core/render";
-import { BLOCK_LANG, FRONTMATTER_KEY, noteTemplate, normalizeProject, toPlain } from "./core/serialize";
+import { BLOCK_LANG, FRONTMATTER_KEY, extractBlock, noteTemplate, normalizeProject, toPlain } from "./core/serialize";
 import { createFromTemplate } from "./core/templates";
 import type { Project } from "./core/types";
 import { DEFAULT_SETTINGS, SimpleGanttSettingTab, SimpleGanttSettings } from "./settings";
 import { RIBBON_ICON_SVG, icon } from "./ui/icons";
 import { GanttView, ICON_ID, VIEW_TYPE } from "./view";
+import { OVERVIEW_VIEW_TYPE, OverviewView } from "./overview";
 
 export default class SimpleGanttPlugin extends Plugin {
 	settings!: SimpleGanttSettings;
+	private ribbonEl: HTMLElement | null = null;
 
 	async onload() {
 		await this.loadSettings();
 		addIcon(ICON_ID, RIBBON_ICON_SVG);
 		this.registerView(VIEW_TYPE, (leaf) => new GanttView(leaf, this));
+		this.registerView(OVERVIEW_VIEW_TYPE, (leaf) => new OverviewView(leaf, this));
 
-		this.addRibbonIcon(ICON_ID, "Open timeline", () => this.activateView());
+		this.setRibbon(this.settings.showRibbon);
 
 		this.addCommand({ id: "open", name: "Open timeline", callback: () => this.activateView() });
+		this.addCommand({ id: "show-overview", name: "Show overview in the sidebar", callback: () => void this.showOverview("left") });
 		this.addCommand({
 			id: "new-dissertation",
 			name: "New dissertation timeline",
@@ -60,6 +64,30 @@ export default class SimpleGanttPlugin extends Plugin {
 		}));
 		this.registerEvent(this.app.vault.on("rename", (file, oldPath) => this.renameProject(oldPath, file.path)));
 		this.registerEvent(this.app.vault.on("delete", (file) => this.forgetProject(file.path)));
+	}
+
+	/** The left ribbon button can be switched off, e.g. when the sidebar panel is used instead. */
+	setRibbon(show: boolean) {
+		if (show && !this.ribbonEl) this.ribbonEl = this.addRibbonIcon(ICON_ID, "Open timeline", () => void this.activateView());
+		else if (!show && this.ribbonEl) {
+			this.ribbonEl.remove();
+			this.ribbonEl = null;
+		}
+	}
+
+	/** Open (or reveal) the overview panel in a sidebar. Its tab icon can then be dragged to any tab group. */
+	async showOverview(side: "left" | "right") {
+		await this.app.workspace.ensureSideLeaf(OVERVIEW_VIEW_TYPE, side, { active: true, reveal: true });
+	}
+
+	/** Read a timeline note into a project, or null if its data block can't be read. */
+	async readProject(file: TFile): Promise<Project | null> {
+		try {
+			const yaml = extractBlock(await this.app.vault.cachedRead(file));
+			return normalizeProject(yaml ? parseYaml(yaml) : {}, file.basename);
+		} catch {
+			return null;
+		}
 	}
 
 	async loadSettings() {
@@ -105,17 +133,18 @@ export default class SimpleGanttPlugin extends Plugin {
 			.filter((f): f is TFile => f instanceof TFile && this.isProject(f));
 	}
 
-	/** Open the Gantt tab (re-using an existing one), optionally on a specific project note. */
-	async activateView(path?: string) {
+	/** Open the Gantt tab (re-using an existing one), optionally on a project note and with one item selected. */
+	async activateView(path?: string, itemId?: string) {
 		const { workspace } = this.app;
 		let leaf = workspace.getLeavesOfType(VIEW_TYPE)[0];
 		if (!leaf) {
 			leaf = workspace.getLeaf("tab");
 			await leaf.setViewState({ type: VIEW_TYPE, active: true, state: path ? { file: path } : {} });
-		} else if (path) {
+		} else if (path && (leaf.view as GanttView).currentPath() !== path) {
 			await (leaf.view as GanttView).openPath(path);
 		}
 		await workspace.revealLeaf(leaf);
+		if (itemId) (leaf.view as GanttView).focusItem(itemId);
 	}
 
 	async newProject(template: "dissertation" | "blank") {

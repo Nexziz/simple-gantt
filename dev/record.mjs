@@ -116,6 +116,19 @@ function demo(page) {
 			await page.mouse.up();
 			if (opts.shift) await page.keyboard.up("Shift");
 		},
+		/** A point on a row's empty space (nothing drawn there for `room` px to the right). */
+		async emptySpot(lane, room = 160) {
+			return page.evaluate(([lane, room]) => {
+				const r = document.querySelector(`.sg-lane-hit[data-lane="${lane}"]`).getBoundingClientRect();
+				const sc = document.querySelector(".sg-scroller").getBoundingClientRect();
+				for (let y = r.top + 10; y < r.bottom - 6; y += 6)
+					for (let x = Math.max(r.left, sc.left + 260); x < Math.min(r.right, sc.right) - room; x += 12) {
+						const ok = [0, room / 3, (2 * room) / 3, room].every((dx) => document.elementFromPoint(x + dx, y)?.classList.contains("sg-lane-hit"));
+						if (ok) return { x, y };
+					}
+				return null;
+			}, [lane, room]);
+		},
 		async key(combo, shown) {
 			await page.evaluate((k) => window.__keys(k), shown ?? combo.split("+").map((k) => (k === "Control" ? "Ctrl" : k)));
 			await api.wait(160);
@@ -130,6 +143,46 @@ function demo(page) {
 
 /** Each scene: prep (not recorded) and play (recorded). */
 const scenes = {
+	async pan(d) {
+		await d.caption("Drag empty space to move around, like on a Canvas");
+		const a = await d.emptySpot("methodology", 40);
+		await d.drag({ x: a.x + 300, y: a.y + 60 }, { x: a.x - 220, y: a.y - 180 }, { ms: 1400, hold: 300 });
+		await d.wait(600);
+		await d.drag({ x: a.x + 60, y: a.y - 100 }, { x: a.x + 260, y: a.y - 40 }, { ms: 1100, hold: 300 });
+		await d.wait(700);
+		await d.caption("The tools in the corner change what a drag does: ✚ draws tasks");
+		await d.click('[data-tool="draw"]');
+		await d.wait(700);
+		const spot = await d.emptySpot("data", 200);
+		await d.drag({ x: spot.x, y: spot.y }, { x: spot.x + 170, y: spot.y }, { ms: 900, hold: 300 });
+		await d.wait(500);
+		await d.type("Transcribe pilot interviews");
+		await d.key("Enter", ["↵ Enter"]);
+		await d.wait(900);
+		await d.caption("✋ (or H) to move around again");
+		await d.click('.sg-panel [aria-label="Close"]');
+		await d.wait(300);
+		await d.click('[data-tool="hand"]');
+		await d.wait(500);
+		const e2 = await d.emptySpot("analysis", 20);
+		await d.drag({ x: e2.x, y: e2.y }, { x: e2.x - 260, y: e2.y + 70 }, { ms: 1000, hold: 300 });
+		await d.wait(1000);
+	},
+	async sidebar(d) {
+		await d.caption("A panel in your sidebar: what's on now and what's coming up");
+		await d.wait(800);
+		await d.move(160, 330, 700);
+		await d.wait(700);
+		await d.caption("Click anything to jump to it on the timeline");
+		await d.click('.sg-ov-row[aria-label$="Systematic literature review"]');
+		await d.wait(1600);
+		await d.click('.sg-ov-row[aria-label$="Ethics application"]');
+		await d.wait(1600);
+		await d.caption("Drag its icon to any tab group in the sidebars");
+		const tab = await d.box(".mock-side-tabs .is-active");
+		await d.move(tab.cx, tab.cy, 800);
+		await d.wait(1800);
+	},
 	async "quick-add"(d) {
 		await d.caption("Type one line: dates, phases and types are understood");
 		await d.click(".sg-quick-input");
@@ -186,7 +239,7 @@ const scenes = {
 	},
 	async select(d) {
 		await d.caption("Select tool (V): drag a box over several items");
-		await d.click(".sg-select-btn");
+		await d.click('[data-tool="select"]');
 		await d.wait(500);
 		const c1 = await d.box('.sg-item[data-id="c1"] rect.sg-mark');
 		const d2 = await d.box('.sg-item[data-id="d2"] rect.sg-mark');
@@ -216,11 +269,11 @@ const scenes = {
 	},
 	async "zoom-fold"(d) {
 		await d.caption("Year, quarter or month: zoom smoothly");
-		await d.click(".sg-seg button:nth-child(2)");
+		await d.click('.sg-seg[aria-label="Zoom"] button:nth-child(2)');
 		await d.wait(1100);
-		await d.click(".sg-seg button:nth-child(3)");
+		await d.click('.sg-seg[aria-label="Zoom"] button:nth-child(3)');
 		await d.wait(1100);
-		await d.click(".sg-seg button:nth-child(1)");
+		await d.click('.sg-seg[aria-label="Zoom"] button:nth-child(1)');
 		await d.wait(1000);
 		await d.caption("Click a phase to fold it into one summary bar");
 		await d.click('.sg-lane-label[data-lane="literature"] .sg-lane-hitbox');
@@ -285,6 +338,8 @@ const scenes = {
 
 /** Per scene: query, scroll and setup before recording starts. */
 const setup = {
+	pan: { zoom: 2 },
+	sidebar: { query: "sidebar=1" },
 	link: { scrollTop: 330 },
 	select: { scrollTop: 330 },
 	"menu-rename": { scrollTop: 330 },
@@ -309,6 +364,7 @@ for (const [name, play] of Object.entries(scenes)) {
 		const sc = document.querySelector(".sg-scroller");
 		if (sc && top) sc.scrollTop = top;
 	}, cfg.scrollTop ?? 0);
+	if (cfg.zoom) await page.click(`.sg-seg[aria-label="Zoom"] button:nth-child(${cfg.zoom})`);
 	await page.waitForTimeout(500);
 
 	const frames = [];

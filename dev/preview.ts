@@ -7,6 +7,8 @@ import { cloneProject, type Project } from "../src/core/types";
 import { GanttBoard } from "../src/ui/board";
 import { RIBBON_ICON_SVG, icon } from "../src/ui/icons";
 import { SAMPLE } from "./sample";
+import { App, TFile, WorkspaceLeaf } from "obsidian";
+import { OverviewView } from "../src/overview";
 
 const params = new URLSearchParams(location.search);
 const mode = params.get("mode") ?? "board";
@@ -67,6 +69,29 @@ if (mode === "export") {
 	});
 	board.setProject(current ? projects[current] : null, current);
 	(window as any).board = board;
+	if (params.get("sidebar")) void showSidebar(board);
 	(window as any).projects = projects;
 }
 (window as any).__ready = true;
+
+/** An Obsidian-like left sidebar with the overview panel as one of its tabs (?sidebar=1). */
+async function showSidebar(board: GanttBoard) {
+	const app = document.querySelector(".mock-app")!;
+	const side = document.createElement("div");
+	side.className = "mock-side";
+	side.innerHTML = `<div class="mock-side-tabs"><span>${icon("note", 16).outerHTML}</span><span>${icon("today", 16).outerHTML}</span><span class="is-active"><svg viewBox="0 0 100 100" width="16" height="16">${RIBBON_ICON_SVG}</svg></span></div>`;
+	app.insertBefore(side, app.children[1]);
+	const file = new TFile("Gantt/PhD Dissertation.md");
+	const plugin = {
+		settings: { lastProject: file.path },
+		listProjects: () => [file],
+		readProject: async () => cloneProject(SAMPLE),
+		isProject: () => true,
+		activateView: async (_p: string, id?: string) => id && board.focusItem(id),
+		newProject: async () => {},
+	};
+	const view = new OverviewView(new WorkspaceLeaf(new App()), plugin as never);
+	view.contentEl.classList.add("mock-side-content");
+	side.appendChild(view.contentEl);
+	await view.onOpen();
+}

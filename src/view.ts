@@ -85,6 +85,15 @@ export class GanttView extends ItemView {
 		return super.setState(state, result);
 	}
 
+	currentPath(): string | null {
+		return this.file?.path ?? null;
+	}
+
+	/** Select an item and scroll it into view (e.g. from the sidebar overview). */
+	focusItem(id: string) {
+		this.board?.focusItem(id);
+	}
+
 	async openPath(path: string) {
 		const f = this.app.vault.getAbstractFileByPath(path);
 		if (f instanceof TFile) await this.loadFile(f);

@@ -6,6 +6,7 @@ import { normalizeProject, toPlain } from "../src/core/serialize";
 import { addLink, computeSlack, enforceLinks, linkConflicts } from "../src/core/links";
 import { baselineSummary, driftOf, saveBaseline } from "../src/core/baseline";
 import { toCsv, toMarkdownTable } from "../src/core/table";
+import { agenda } from "../src/core/agenda";
 import { isOn, setFeature } from "../src/core/features";
 import { computeLayout } from "../src/core/layout";
 import { createFromTemplate } from "../src/core/templates";
@@ -215,6 +216,14 @@ t("table export: Markdown table and CSV in phase order", () => {
 	const csv = toCsv(SAMPLE).split("\r\n");
 	assert.equal(csv[0], "Phase,Item,Type,Start,End,Duration,Status,Starts after");
 	assert.equal(csv.length, SAMPLE.items.length + 2);
+});
+
+t("agenda: what's on now, coming up and overdue, for the sidebar", () => {
+	const a = agenda(SAMPLE, today);
+	assert.deepEqual(a.now.map((i) => i.id), ["b1", "a2"], "tasks under way, ending soonest first");
+	assert.deepEqual(a.soon.map((s) => s.item.id), ["b2"], "starts within four weeks");
+	assert.deepEqual(a.late.map((s) => s.item.id), ["a0"], "a milestone that passed without being ticked off");
+	assert.ok(!a.now.some((i) => i.id === "a1"), "finished work never shows");
 });
 
 console.log(failed ? `\n${failed} failed` : `\nall nudge/journal/link/feature tests passed`);

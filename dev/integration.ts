@@ -259,8 +259,9 @@ function check(cond: unknown, msg: string) {
 		const pe = (type: string, el: Element, x: number, y: number, extra: PointerEventInit = {}) =>
 			el.dispatchEvent(new PointerEvent(type, { clientX: x, clientY: y, pointerId: 1, button: 0, bubbles: true, pointerType: "mouse", ...extra }));
 		const picked = () => board["selectedIds"] as Set<string>;
+		check(root.classList.contains("is-tool-hand") && document.querySelector('.sg-corner [data-tool="hand"].is-active'), "the board starts with the move-around tool, its buttons in the chart's corner");
 		key("v");
-		check(root.classList.contains("is-select-tool"), "V switches on the select tool");
+		check(root.classList.contains("is-tool-select"), "V switches on the select tool");
 		const ra = markOf(draft.id).getBoundingClientRect(), rb = markOf(edit.id).getBoundingClientRect();
 		const laneHit = document.querySelector(".sg-lane-hit")!;
 		pe("pointerdown", laneHit, Math.min(ra.left, rb.left) - 4, Math.min(ra.top, rb.top) - 3);
@@ -293,7 +294,7 @@ function check(cond: unknown, msg: string) {
 		key("Escape");
 		check(picked().size === 0, "Esc clears the selection");
 		key("v");
-		check(!root.classList.contains("is-select-tool"), "V switches the select tool off again");
+		check(root.classList.contains("is-tool-hand"), "V again goes back to moving around");
 
 		const linkHit = () => document.querySelector(`.sg-link[data-link="${draft.id} ${edit.id}"] .sg-link-hit`);
 		check(linkHit(), "links have a wide, clickable hit area");
@@ -386,6 +387,58 @@ function check(cond: unknown, msg: string) {
 		check(csv?.startsWith("Phase,Item,Type,Start,End") && csv.includes("Draft chapter three"), "the plan exports as CSV");
 		await board.copyTable();
 		check(notices.some((n: string) => n.includes("Markdown table")) || app.vault.data.has("Gantt/Renamed in editor table.md"), "the plan copies as a Markdown table");
+		// ── Move around like Canvas, draw tool, sidebar overview ──
+		key("Escape");
+		key("Escape");
+		const scroller = document.querySelector(".sg-scroller") as HTMLElement;
+		board["setZoom"]("month");
+		await sleep(500);
+		const itemsBeforePan = proj().items.length;
+		const lanePan = document.querySelector(`.sg-lane-hit[data-lane="${teach.id}"]`)!;
+		const lr = lanePan.getBoundingClientRect();
+		const left0 = scroller.scrollLeft;
+		pe("pointerdown", lanePan, lr.left + 400, lr.top + 5);
+		pe("pointermove", bodyEl, lr.left + 300, lr.top + 5);
+		pe("pointermove", bodyEl, lr.left + 200, lr.top + 5);
+		pe("pointerup", bodyEl, lr.left + 200, lr.top + 5);
+		check(scroller.scrollLeft - left0 === 200 && proj().items.length === itemsBeforePan, `dragging empty space moves the chart instead of drawing (${left0} → ${scroller.scrollLeft})`);
+		const left1 = scroller.scrollLeft;
+		pe("pointerdown", lanePan, lr.left + 300, lr.top + 5, { button: 1 });
+		pe("pointermove", bodyEl, lr.left + 400, lr.top + 5);
+		pe("pointerup", bodyEl, lr.left + 400, lr.top + 5);
+		check(left1 - scroller.scrollLeft === 100, "the middle mouse button moves around too");
+		key("d");
+		check(root.classList.contains("is-tool-draw"), "D picks the draw tool");
+		const lr2 = lanePan.isConnected ? lanePan.getBoundingClientRect() : document.querySelector(`.sg-lane-hit[data-lane="${teach.id}"]`)!.getBoundingClientRect();
+		const laneNow = document.querySelector(`.sg-lane-hit[data-lane="${teach.id}"]`)!;
+		pe("pointerdown", laneNow, lr2.left + 40, lr2.bottom - 4);
+		pe("pointermove", bodyEl, lr2.left + 140, lr2.bottom - 4);
+		pe("pointerup", bodyEl, lr2.left + 140, lr2.bottom - 4);
+		check(proj().items.length === itemsBeforePan + 1 && proj().items.some((i: any) => i.title === "New task"), "with the draw tool, dragging across a row adds a task");
+		key("Escape");
+		key("Escape");
+		key("Escape");
+		check(root.classList.contains("is-tool-hand"), "Esc goes back to moving around");
+		board["setZoom"]("year");
+		await sleep(500);
+
+		const showOverview = plugin.commands.find((c: any) => c.id === "show-overview");
+		await showOverview.callback();
+		await sleep(400);
+		const ov = document.querySelector(".sg-overview") as HTMLElement;
+		check(ov && app.workspace.leaves.some((l: any) => l.side === "left" && l.view?.getViewType() === "simple-gantt-overview"), "the overview opens as a tab in the left sidebar");
+		check(ov?.querySelector(".sg-ov-open") && ov.querySelector(".sg-ov-pct")?.textContent?.endsWith("% done"), "it shows progress and an Open timeline button");
+		const ovRows = [...(ov?.querySelectorAll(".sg-ov-row") ?? [])].map((r) => r.querySelector(".sg-ov-name")?.textContent);
+		check(ovRows.length > 0, `it lists what's on now and coming up (${ovRows.length} rows)`);
+		(ov.querySelector(".sg-ov-row") as HTMLElement).click();
+		await sleep(300);
+		check(document.querySelector(".sg-panel.is-open") && board["selectedId"], "clicking an item there opens it on the timeline");
+		await showOverview.callback();
+		check(document.querySelectorAll(".sg-overview").length === 1, "showing it again reuses the same panel");
+		plugin.setRibbon(false);
+		check(!(window as any).ribbon, "the ribbon button can be switched off");
+		plugin.setRibbon(true);
+		check((window as any).ribbon?.title === "Open timeline", "…and back on");
 		log.push(`notices: ${JSON.stringify(notices)}`);
 		(window as any).__note = await app.vault.read(file);
 	} catch (e) {

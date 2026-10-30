@@ -41,12 +41,19 @@ export interface BoardHost {
 }
 
 type Zoom = "year" | "quarter" | "month" | "custom";
+/** What dragging on empty space does: move around (like Canvas), draw a selection box, or draw a task. */
+export type Tool = "hand" | "select" | "draw";
+const TOOLS: { tool: Tool; icon: string; label: string }[] = [
+	{ tool: "hand", icon: "hand", label: "Move around (H): drag empty space to scroll, like Canvas" },
+	{ tool: "select", icon: "select", label: "Select (V): drag a box over items" },
+	{ tool: "draw", icon: "drawTask", label: "Draw tasks (D): drag across a row to add a task" },
+];
 const ZOOM_SPAN: Record<Exclude<Zoom, "custom">, number> = { year: 0, quarter: 92, month: 31 };
 const MAX_PPD = 48;
 
 interface Drag {
 	pointerId: number;
-	kind: "move" | "start" | "end" | "create" | "link" | "marquee";
+	kind: "move" | "start" | "end" | "create" | "link" | "marquee" | "pan";
 	startX: number;
 	startY: number;
 	moved: boolean;
@@ -64,6 +71,8 @@ interface Drag {
 	group?: string[];
 	/** Box select: what was selected before the box (kept when adding with Shift). */
 	base?: Set<string>;
+	/** Panning: the scroll position when the drag started (startX/startY are client coordinates). */
+	scroll?: { left: number; top: number };
 }
 
 /** Move an item by whole days. */
@@ -128,8 +137,8 @@ export class GanttBoard {
 	private selectedIds = new Set<string>();
 	/** A selected link ("predId succId"), shown with a detach button. */
 	private selectedLink: string | null = null;
-	/** The select tool: dragging on empty space draws a selection box instead of a task. */
-	private selectTool = false;
+	/** What dragging on empty space does. Moving around is the default, like Canvas. */
+	private tool: Tool = "hand";
 	/** Highlight the tightest chain of links before each deadline. */
 	private showCritical = false;
 	/** Show where items sat in the saved plan. */
@@ -162,7 +171,8 @@ export class GanttBoard {
 	private stats!: El;
 	private foldBtn!: El;
 	private journalBtn!: El;
-	private selectBtn!: El;
+	private toolBtns = new Map<Tool, El>();
+	private toolGroup!: El;
 	private selBar!: El;
 	private criticalBtn!: El;
 	private compareBtn!: El;
@@ -250,8 +260,13 @@ export class GanttBoard {
 		this.stats = h("div", { cls: "sg-stats" }, this.toolbar);
 		h("div", { cls: "sg-spacer" }, this.toolbar);
 
-		this.selectBtn = h("button", { cls: "sg-btn sg-icon-btn sg-select-btn", kids: [icon("select")], attrs: { "aria-label": "Select tool (V): drag a box over items", "aria-pressed": "false" } }, this.toolbar);
-		this.selectBtn.addEventListener("click", () => this.setSelectTool(!this.selectTool, true));
+		// The tools live in the chart's top-left corner, right where you work (like Canvas's controls).
+		const tools = this.toolGroup = h("div", { cls: "sg-seg sg-tools", attrs: { role: "group", "aria-label": "Tools" } });
+		for (const t of TOOLS) {
+			const b = h("button", { cls: "sg-tool", kids: [icon(t.icon)], attrs: { "aria-label": t.label, "data-tool": t.tool, "aria-pressed": "false" } }, tools);
+			b.addEventListener("click", () => this.setTool(t.tool, true));
+			this.toolBtns.set(t.tool, b);
+		}
 		this.undoBtn = h("button", { cls: "sg-btn sg-icon-btn", kids: [icon("undo")], attrs: { "aria-label": "Undo (Ctrl+Z)" } }, this.toolbar);
 		this.undoBtn.addEventListener("click", () => this.undo());
 
@@ -342,6 +357,7 @@ export class GanttBoard {
 			if ((e.target as Element).closest(".sg-scroller")) this.root.focus({ preventScroll: true });
 		});
 		this.syncQuick();
+		this.setTool("hand");
 	}
 
 	private buildEmpty() {
@@ -415,6 +431,7 @@ export class GanttBoard {
 			theme: this.theme, measure: this.measure, today: toDay(this.host.today()),
 			selectedIds: this.selectedIds, selectedLink: this.selectedLink, flashId: this.flashId, interactive: true,
 			critical: this.showCritical ? this.criticalSet() : null,
+			tool: this.tool,
 			plan: this.comparePlan ? p.baseline : null,
 		};
 		this.canvas.setCssProps({
@@ -422,7 +439,7 @@ export class GanttBoard {
 			"--sg-rows": `${layout.headerH}px ${layout.bodyH}px`,
 		});
 		this.corner.replaceChildren();
-		h("span", { cls: "sg-corner-label", text: "Phases" }, this.corner);
+		this.corner.append(this.toolGroup);
 		this.headerWrap.replaceChildren(paintHeader(layout, { ...paint, visible: this.visibleRange() }));
 		this.labelsWrap.replaceChildren(paintLabels(layout, labelW, paint));
 		this.bodyWrap.replaceChildren(paintBody(layout, paint));
@@ -620,12 +637,19 @@ export class GanttBoard {
 		this.setSelection(this.layout.placed.filter((p) => p.kind === "item").map((p) => p.item.id));
 	}
 
-	setSelectTool(on: boolean, explain = false) {
-		this.selectTool = on;
-		this.root.classList.toggle("is-select-tool", on);
-		this.selectBtn.classList.toggle("is-active", on);
-		this.selectBtn.setAttribute("aria-pressed", String(on));
-		if (on && explain) this.host.notify("Select tool: drag a box over items, then drag one of them to move them all. Press V to switch back.");
+	/** Pick what dragging on empty space does. Items can always be dragged, whatever the tool. */
+	setTool(tool: Tool, explain = false) {
+		const changed = tool !== this.tool;
+		this.tool = tool;
+		for (const t of TOOLS) {
+			this.root.classList.toggle(`is-tool-${t.tool}`, t.tool === tool);
+			this.toolBtns.get(t.tool)?.classList.toggle("is-active", t.tool === tool);
+			this.toolBtns.get(t.tool)?.setAttribute("aria-pressed", String(t.tool === tool));
+		}
+		if (changed && this.project) this.render();
+		if (!changed || !explain) return;
+		if (tool === "select") this.host.notify("Select: drag a box over items, then drag one of them to move them all. Press H to move around again.");
+		else if (tool === "draw") this.host.notify("Draw: drag across a row to add a task. Press H to move around again.");
 	}
 
 	/** Click on a link line: select it so it can be detached. */
@@ -917,6 +941,10 @@ export class GanttBoard {
 	}
 
 	/** Select an item, open its panel and scroll it into view. */
+	focusItem(id: string) {
+		this.showItem(id);
+	}
+
 	private showItem(id: string) {
 		this.select(id, true, null);
 		this.revealItem(id);
@@ -1218,6 +1246,15 @@ export class GanttBoard {
 		return { x: e.clientX - rect.left, y: e.clientY - rect.top };
 	}
 
+	private startPan(e: PointerEvent) {
+		this.drag = {
+			pointerId: e.pointerId, kind: "pan", startX: e.clientX, startY: e.clientY, moved: false,
+			scroll: { left: this.scroller.scrollLeft, top: this.scroller.scrollTop },
+		};
+		this.bodyWrap.setPointerCapture(e.pointerId);
+		e.preventDefault();
+	}
+
 	private laneAt(y: number) {
 		return this.layout?.lanes.find((l) => y >= l.y && y < l.y + l.height) ?? null;
 	}
@@ -1225,8 +1262,10 @@ export class GanttBoard {
 	private bindPointer() {
 		const body = this.bodyWrap;
 		body.addEventListener("pointerdown", (e) => {
-			if (e.button !== 0 || !this.project || !this.layout) return;
+			if ((e.button !== 0 && e.button !== 1) || !this.project || !this.layout) return;
 			const target = e.target as Element;
+			// The middle mouse button moves around with any tool.
+			if (e.button === 1) return this.startPan(e);
 			const part = target.closest("[data-part]");
 			const itemEl = target.closest(".sg-item");
 			const { x, y } = this.bodyPoint(e);
@@ -1239,11 +1278,16 @@ export class GanttBoard {
 				return;
 			}
 			if (itemEl && itemEl.getAttribute("data-kind") !== "item") return; // handled on click
-			if (!itemEl && (this.selectTool || additive)) {
+			if (!itemEl && (this.tool === "select" || additive)) {
 				// Box select, like Canvas. Shift/Ctrl adds to what's already selected.
 				this.drag = { pointerId: e.pointerId, kind: "marquee", startX: x, startY: y, moved: false, additive, base: new Set(additive ? this.selectedIds : []) };
 				body.setPointerCapture(e.pointerId);
 				e.preventDefault();
+				return;
+			}
+			if (!itemEl && this.tool === "hand") {
+				// Like Canvas: drag empty space to move around. Touch screens scroll natively.
+				if (e.pointerType !== "touch") this.startPan(e);
 				return;
 			}
 			if (target.getAttribute("data-lane") === "journal") return;
@@ -1293,6 +1337,18 @@ export class GanttBoard {
 				return;
 			}
 			if (d.pointerId !== e.pointerId || !this.layout || !this.project) return;
+			if (d.kind === "pan") {
+				const dx = e.clientX - d.startX, dy = e.clientY - d.startY;
+				if (!d.moved && Math.hypot(dx, dy) < 3) return;
+				if (!d.moved) {
+					d.moved = true;
+					this.root.classList.add("is-panning");
+					this.hideTooltip();
+				}
+				this.scroller.scrollLeft = d.scroll!.left - dx;
+				this.scroller.scrollTop = d.scroll!.top - dy;
+				return;
+			}
 			if (!d.moved && Math.hypot(x - d.startX, y - d.startY) < 4) return;
 			if (!d.moved) {
 				d.moved = true;
@@ -1365,6 +1421,12 @@ export class GanttBoard {
 			this.root.classList.remove("is-dragging");
 			this.hideTooltip();
 			if (!this.project || !this.layout) return;
+			if (d.kind === "pan") {
+				this.root.classList.remove("is-panning");
+				// A plain click on empty space clears the selection.
+				if (!d.moved && (this.selectedIds.size || this.selectedLink)) this.select(null);
+				return;
+			}
 			if (d.kind === "marquee") {
 				if (!d.moved && !d.additive) this.select(null);
 				else this.render();
@@ -1663,10 +1725,16 @@ export class GanttBoard {
 				h("div", { cls: "sg-menu-label", text: title }, menu);
 				for (const [keys, what] of rows) h("div", { cls: "sg-help-row", kids: [h("kbd", { text: keys }), span(what)] }, menu);
 			};
+			section("Get around", [
+				["Drag empty space", "move around, like Canvas (or the middle mouse button)"],
+				["Ctrl + scroll", "zoom in and out"],
+				["H · V · D", "tools: move around · select · draw tasks"],
+			]);
 			section("Add", [
 				["Type above", "e.g. “Lit review Jan–Mar #lit”"],
-				["Drag", "across an empty row to draw a task"],
+				["D, then drag", "across a row to draw a task"],
 				["Double-click", "a row for a milestone or key date"],
+				["Right-click", "a row to add something right there"],
 				["+", "on a row's label to add to that row"],
 				["! * + @ ~ >", "deadline · milestone · key date · place · buffer · journal"],
 			]);
@@ -1680,7 +1748,7 @@ export class GanttBoard {
 				["↑ ↓", "move to the phase above / below"],
 			]);
 			section("Select several", [
-				["V", "select tool: drag a box over items"],
+				["V", "select tool: drag a box over items (H to go back)"],
 				["Shift + drag", "on an empty spot draws a box too"],
 				["Shift/Ctrl + click", "add or remove one item"],
 				["Drag one", "of the selected items to move them all"],
@@ -1788,7 +1856,7 @@ export class GanttBoard {
 			if (this.menu) this.closeMenu();
 			else if (this.panelMode) this.closePanel();
 			else if (this.selectedIds.size || this.selectedLink) this.select(null);
-			else if (this.selectTool) this.setSelectTool(false);
+			else if (this.tool !== "hand") this.setTool("hand");
 		} else if ((e.key === "Delete" || e.key === "Backspace") && !inField && this.selectedLink) {
 			e.preventDefault();
 			this.unlinkSelected();
@@ -1806,7 +1874,13 @@ export class GanttBoard {
 			this.startRename(this.selectedId);
 		} else if (e.key.toLowerCase() === "v" && !inField && !mod) {
 			e.preventDefault();
-			this.setSelectTool(!this.selectTool);
+			this.setTool(this.tool === "select" ? "hand" : "select");
+		} else if (e.key.toLowerCase() === "h" && !inField && !mod) {
+			e.preventDefault();
+			this.setTool("hand");
+		} else if (e.key.toLowerCase() === "d" && !inField && !mod) {
+			e.preventDefault();
+			this.setTool(this.tool === "draw" ? "hand" : "draw");
 		} else if (e.key.toLowerCase() === "c" && !inField && !mod) {
 			e.preventDefault();
 			this.toggleCritical();
@@ -1898,7 +1972,12 @@ export class GanttBoard {
 		const form = h("div", { cls: "sg-form" }, panel);
 		const title = this.textField(form, "Title", item.title);
 		this.editor(title, () => (item.title = title.value));
-		title.addEventListener("keydown", (e) => e.key === "Enter" && title.blur());
+		title.addEventListener("keydown", (e) => {
+			if (e.key !== "Enter") return;
+			title.blur();
+			// Back to the board, so H, V, D, arrows and Space work straight away.
+			this.root.focus({ preventScroll: true });
+		});
 		if (focus === "title") window.setTimeout(() => {
 			title.focus();
 			if (/^New /.test(item.title)) title.select();

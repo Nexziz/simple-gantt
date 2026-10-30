@@ -9,7 +9,7 @@ const only = process.argv[2];
 
 /** Select tool on, then drag a box from an empty spot (top right) over the data-collection and analysis items. */
 async function boxSelect(page, release) {
-	await page.click(".sg-select-btn");
+	await page.click('[data-tool="select"]');
 	await page.mouse.move(0, 0);
 	const a = await page.locator('.sg-item[data-id="c1"] rect.sg-mark').boundingBox();
 	const b = await page.locator('.sg-item[data-id="d2"] rect.sg-mark').boundingBox();
@@ -36,7 +36,7 @@ const scenes = {
 		await page.waitForTimeout(250);
 	},
 	async "05-dark-quarter"(page) {
-		await page.click(".sg-seg button:nth-child(2)");
+		await page.click('.sg-seg[aria-label="Zoom"] button:nth-child(2)');
 		await page.waitForTimeout(500);
 	},
 	async "06-project-panel"(page) {
@@ -99,7 +99,7 @@ const scenes = {
 			await page.fill(".sg-quick-input", line);
 			await page.press(".sg-quick-input", "Enter");
 		}
-		await page.click(".sg-seg button:nth-child(2)");
+		await page.click('.sg-seg[aria-label="Zoom"] button:nth-child(2)');
 		await page.waitForTimeout(500);
 		const lane = await page.locator('.sg-lane-hit[data-lane="analysis"]').boundingBox();
 		await page.mouse.move(lane.x + 500, lane.y + lane.height / 2);
@@ -144,6 +144,10 @@ const scenes = {
 		await page.mouse.move(pt.x, pt.y + 1);
 		await page.waitForTimeout(150);
 	},
+	async "23-sidebar"(page) {
+		for (let i = 0; i < 6; i++) await page.evaluate(() => document.querySelector('.sg-nudge [aria-label="Dismiss"]')?.click());
+		await page.waitForTimeout(400);
+	},
 	async "14-ripple"(page) {
 		const box = await page.locator('.sg-item[data-id="b3"] rect.sg-mark').boundingBox();
 		const y = box.y + box.height / 2;
@@ -155,7 +159,7 @@ const scenes = {
 	},
 };
 const viewports = { "09-mobile": { width: 390, height: 780 } };
-const query = { "05-dark-quarter": "theme=dark", "07-empty": "empty=1", "18-sparse-dark": "theme=dark&empty=1" };
+const query = { "23-sidebar": "sidebar=1", "05-dark-quarter": "theme=dark", "07-empty": "empty=1", "18-sparse-dark": "theme=dark&empty=1" };
 
 const browser = await chromium.launch();
 for (const [name, act] of Object.entries(scenes)) {

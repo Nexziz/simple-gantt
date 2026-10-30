@@ -72,3 +72,12 @@ html, body { height: 100%; }
 }
 .mock-notice.is-out { opacity: 0; transform: translateY(-6px); transition: opacity .3s, transform .3s; }
 @keyframes mock-notice-in { from { opacity: 0; transform: translateY(-8px); } }
+/* A sidebar like Obsidian's, for the overview panel (?sidebar=1) */
+.mock-side { width: 290px; flex: none; display: flex; flex-direction: column; border-right: 1px solid var(--background-modifier-border); background: var(--background-secondary); }
+.mock-side-tabs { display: flex; gap: 4px; padding: 8px 10px; border-bottom: 1px solid var(--background-modifier-border); color: var(--text-muted); }
+.mock-side-tabs span { display: grid; place-items: center; width: 30px; height: 28px; border-radius: 6px; }
+.mock-side-tabs span.is-active { background: var(--background-modifier-hover); color: var(--text-normal); }
+.mock-side-content { flex: 1; overflow: auto; }
+.mock-side button { font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--background-modifier-border); background: var(--background-primary); color: var(--text-normal); cursor: pointer; }
+.mock-side button.mod-cta { background: var(--interactive-accent); border-color: var(--interactive-accent); color: #fff; font-weight: 600; }
+.mock-side select { font: inherit; }

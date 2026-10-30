@@ -28,6 +28,7 @@ export class Vault extends Events {
 	getAbstractFileByPath(p: string) { return this.files.get(p) ?? (this.folders.has(p) ? { path: p } : null); }
 	getMarkdownFiles() { return [...this.files.values()].filter((f) => f.extension === "md"); }
 	async read(f: TFile) { return this.data.get(f.path) as string; }
+	async cachedRead(f: TFile) { return this.data.get(f.path) as string; }
 	async create(p: string, s: string) { const f = new TFile(p); this.files.set(p, f); this.data.set(p, s); this.trigger("create", f); return f; }
 	async createBinary(p: string, b: ArrayBuffer) { const f = new TFile(p); this.files.set(p, f); this.data.set(p, b); return f; }
 	async modify(f: TFile, s: string) { this.data.set(f.path, s); f.stat.mtime = Date.now(); this.trigger("modify", f); }
@@ -50,10 +51,12 @@ const viewFactories: Record<string, (leaf: WorkspaceLeaf) => any> = {};
 
 export class WorkspaceLeaf {
 	view: any = null;
-	constructor(public app: App) {}
+	/** Where the view's content goes: the main area, or a sidebar column. */
+	constructor(public app: App, public side: "left" | "right" | null = null) {}
 	async setViewState(s: { type: string; state?: any }) {
 		this.view = viewFactories[s.type](this);
-		document.getElementById("host")?.appendChild(this.view.contentEl);
+		const parent = this.side ? (document.getElementById("side") ?? document.body.appendChild(Object.assign(document.createElement("div"), { id: "side" }))) : document.getElementById("host");
+		parent?.appendChild(this.view.contentEl);
 		await this.view.onOpen();
 		if (s.state) await this.view.setState(s.state, {});
 	}
@@ -65,6 +68,14 @@ export class Workspace extends Events {
 	getLeavesOfType(t: string) { return this.leaves.filter((l) => l.view?.getViewType() === t); }
 	getLeaf() { const l = new WorkspaceLeaf(this.app); this.leaves.push(l); return l; }
 	async revealLeaf() {}
+	async ensureSideLeaf(type: string, side: "left" | "right") {
+		const found = this.getLeavesOfType(type)[0];
+		if (found) return found;
+		const l = new WorkspaceLeaf(this.app, side);
+		this.leaves.push(l);
+		await l.setViewState({ type });
+		return l;
+	}
 	getActiveFile() { return null; }
 	getLastOpenFiles(): string[] { return []; }
 	openLinkText(link: string) { notices.push(`open:${link}`); }
@@ -78,6 +89,7 @@ export class App {
 
 export class Component {
 	registerEvent() {}
+	registerInterval(id: number) { return id; }
 }
 
 export class ItemView extends Component {
@@ -95,7 +107,12 @@ export class Plugin extends Component {
 	saved: any = null;
 	constructor(public app: App, public manifest: any = {}) { super(); }
 	registerView(t: string, f: (leaf: WorkspaceLeaf) => any) { viewFactories[t] = f; }
-	addRibbonIcon(_i: string, title: string, cb: () => void) { (window as any).ribbon = { title, cb }; }
+	addRibbonIcon(_i: string, title: string, cb: () => void) {
+		const el = document.createElement("div");
+		el.remove = () => { (window as any).ribbon = null; };
+		(window as any).ribbon = { title, cb };
+		return el;
+	}
 	addCommand(c: any) { this.commands.push(c); }
 	registerMarkdownCodeBlockProcessor(lang: string, f: Function) { this.processors[lang] = f; }
 	addSettingTab() {}

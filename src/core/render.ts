@@ -67,6 +67,8 @@ export interface PaintOptions {
 	critical?: ReadonlySet<string> | null;
 	/** Compare with the saved plan: faint outlines show where items were planned. */
 	plan?: Project["baseline"] | null;
+	/** The board's tool, so empty rows can say what a drag will do. */
+	tool?: "hand" | "select" | "draw";
 	flashId?: string | null;
 	interactive?: boolean;
 	/** Visible horizontal window [from, to] in timeline px; header labels stay inside it while scrolling. */
@@ -274,7 +276,7 @@ export function paintBody(layout: Layout, o: PaintOptions): SVGSVGElement {
 	}
 
 	// Lane separators (with interactive hit areas for drag-to-create)
-	const hints = o.interactive ? laneHints(layout) : new Map<Lane, { text: string; always: boolean }>();
+	const hints = o.interactive ? laneHints(layout, o.tool) : new Map<Lane, { text: string; always: boolean }>();
 	layout.lanes.forEach((lane, i) => {
 		if (o.interactive)
 			svgEl("rect", {
@@ -352,17 +354,18 @@ interface Fills {
  * How-to hints for empty rows. They only appear while the row is hovered, so the chart stays calm;
  * a brand-new project shows a single hint in its first phase row until something is added.
  */
-function laneHints(layout: Layout): Map<Lane, { text: string; always: boolean }> {
+function laneHints(layout: Layout, tool: PaintOptions["tool"]): Map<Lane, { text: string; always: boolean }> {
 	const used = new Set(layout.placed.map((p) => p.lane));
 	const phases = layout.lanes.filter((l) => l.kind === "phase");
 	const fresh = phases.length > 0 && phases.every((l) => !used.has(l));
 	const out = new Map<Lane, { text: string; always: boolean }>();
 	for (const lane of layout.lanes) {
 		if (used.has(lane)) continue;
+		const draw = tool === "draw";
 		const text =
-			lane.kind === "phase" ? "Drag to add a task · double-click for a milestone" :
+			lane.kind === "phase" ? (draw ? "Drag to add a task · double-click for a milestone" : "Double-click to add a milestone · right-click for more") :
 			lane.kind === "keydates" ? "Double-click to add a key date" :
-			lane.kind === "locations" ? "Drag to add a place you'll be" : null;
+			lane.kind === "locations" ? (draw ? "Drag to add a place you'll be" : "Double-click to add a place you'll be") : null;
 		if (text) out.set(lane, { text, always: fresh && lane === phases[0] });
 	}
 	return out;

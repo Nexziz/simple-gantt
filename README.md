@@ -34,10 +34,15 @@
 </p>
 
 - ⚡ **One line to add anything.** Type `Interviews 3–28 May #data` and it lands in the right phase on the right dates. Deadlines, milestones, places and journal notes work the same way.
-- 🖐️ **Drag, link, tick off.** Move and resize bars, select several like on a Canvas, and link steps so a delay pushes what comes after. Ticking something off gets you confetti.
+- 🖐️ **Feels like Canvas.** Drag empty space to move around, drag bars to move them, select several at once, and link steps so a delay pushes what comes after. Ticking something off gets you confetti.
 - 📄 **Just a note.** Each timeline is a Markdown note with readable YAML. It syncs, works with git, and is still there if you ever uninstall the plugin. No accounts, no network.
 
 ## See it in action
+
+### Move around like on a Canvas
+Drag any empty space to move around the chart (or use the middle mouse button). The tools in the chart's top-left corner switch what a drag does: ✋ move around (<kbd>H</kbd>), ⬚ select (<kbd>V</kbd>) or ✚ draw tasks (<kbd>D</kbd>).
+
+![Moving around and the tools](https://raw.githubusercontent.com/Nexziz/simple-gantt/main/docs/gifs/pan.gif)
 
 ### Add things in one line
 The live preview shows exactly what you'll get before you press <kbd>Enter</kbd>.
@@ -55,7 +60,7 @@ Drag the dot at the end of a bar onto what comes next. Move the first step and t
 ![Linking and unlinking](https://raw.githubusercontent.com/Nexziz/simple-gantt/main/docs/gifs/link.gif)
 
 ### Select several, like on a Canvas
-Use the select tool (<kbd>V</kbd>) or <kbd>Shift</kbd>-drag on an empty spot to draw a box. Drag one item and the whole group moves.
+Pick the select tool (<kbd>V</kbd>), or hold <kbd>Shift</kbd> and drag on an empty spot, to draw a box. Drag one item and the whole group moves.
 
 ![Box select and group move](https://raw.githubusercontent.com/Nexziz/simple-gantt/main/docs/gifs/select.gif)
 
@@ -73,6 +78,11 @@ Confetti, a mood and a line of reflection, collected in a journal you can save a
 Year, quarter or month, with smooth zooming. Fold a phase into one summary bar, or press <kbd>F</kbd> to fold everything.
 
 ![Zoom and fold](https://raw.githubusercontent.com/Nexziz/simple-gantt/main/docs/gifs/zoom-fold.gif)
+
+### A panel in your sidebar
+The overview panel shows your next deadline, what's on now and what's coming up. Click anything to jump to it on the timeline. Drag its icon to any tab group in the sidebars to put it where you like, for example next to Files at the top, or into the bottom half.
+
+![The overview panel in the sidebar](https://raw.githubusercontent.com/Nexziz/simple-gantt/main/docs/gifs/sidebar.gif)
 
 ### Critical path and plan vs. reality
 <kbd>C</kbd> highlights the chain with the least slack before a deadline. <kbd>B</kbd> compares today's chart with the plan you saved, showing where everything was planned and how far it moved.
@@ -103,8 +113,9 @@ Year, quarter or month, with smooth zooming. Fold a phase into one summary bar, 
 <details open>
 <summary><b>Move &amp; connect</b></summary>
 
-- **Drag** bars to move them, drag their edges to resize, or drag a task into another phase. Hold <kbd>Shift</kbd> to move everything after it too.
-- **Select several:** use the select tool (<kbd>V</kbd>), <kbd>Shift</kbd>-drag a box, <kbd>Shift</kbd>/<kbd>Ctrl</kbd>-click, or press <kbd>Ctrl</kbd>+<kbd>A</kbd>. A small bar moves the selection by a week, links it in date order, ticks it off, duplicates or deletes it.
+- **Move around like on a Canvas:** drag empty space (or use the middle mouse button) to scroll the chart, and Ctrl/Cmd + scroll to zoom. The tools in the chart's corner switch what a drag on empty space does: move around (<kbd>H</kbd>, the default), select (<kbd>V</kbd>) or draw tasks (<kbd>D</kbd>).
+- **Drag** bars to move them, drag their edges to resize, or drag a task into another phase. This works with every tool. Hold <kbd>Shift</kbd> to move everything after it too.
+- **Select several:** use the select tool (<kbd>V</kbd>), <kbd>Shift</kbd>-drag a box on empty space, <kbd>Shift</kbd>/<kbd>Ctrl</kbd>-click, or press <kbd>Ctrl</kbd>+<kbd>A</kbd>. A small bar moves the selection by a week, links it in date order, ticks it off, duplicates or deletes it.
 - **Links** keep the order: when something slips, everything linked after it moves too. Arrows have clean right angles, enter milestones from the top and leave from the bottom. If a deadline would be missed, the arrow turns red and you get a warning.
 - **Detach a link** by clicking its line, then **×** or <kbd>Delete</kbd>.
 - **Rename in place** by double-clicking or pressing <kbd>F2</kbd>. **Duplicate** with <kbd>Ctrl</kbd>+<kbd>D</kbd>. **Undo** anything with <kbd>Ctrl</kbd>+<kbd>Z</kbd>.
@@ -140,6 +151,7 @@ Year, quarter or month, with smooth zooming. Fold a phase into one summary bar, 
 <details>
 <summary><b>Make it yours</b></summary>
 
+- **Put Simple Gantt where you like:** open the **overview panel** from Settings → Simple Gantt (left or right sidebar) or with the command *Show overview in the sidebar*, then drag its icon onto any tab group. You can hide the ribbon button there too.
 - **Use only what you need:** under project settings → **Features**, switch Links, Progress, Reminders, Key dates, Locations, Buffer time, Plan B, Journal and Celebrations on or off, or pick **Essentials** or **Everything**. Switching something off only hides it; your data stays.
 - **Comfortable or Compact** spacing.
 - Follows your Obsidian theme (light and dark), and works on mobile.
@@ -179,11 +191,13 @@ Type a title and a date; everything else is optional.
 
 | Gesture or key | What it does |
 |---|---|
-| **Drag** an empty row | Draw a task |
+| **Drag** empty space | Move around (with the draw tool: draw a task) |
+| **Middle mouse** drag · Ctrl/Cmd + scroll | Move around · zoom |
+| <kbd>H</kbd> · <kbd>V</kbd> · <kbd>D</kbd> | Tools: move around · select · draw tasks |
 | **Double-click** an empty row | Add a milestone or key date |
 | **Double-click** an item · <kbd>F2</kbd> | Rename it in place |
 | **Right-click** | The menu for an item, a link or a row |
-| <kbd>V</kbd> · <kbd>Shift</kbd> + drag | Select tool · draw a selection box |
+| <kbd>Shift</kbd> + drag empty space | Draw a selection box (with any tool) |
 | <kbd>Shift</kbd>/<kbd>Ctrl</kbd> + click · <kbd>Ctrl</kbd>+<kbd>A</kbd> | Add to the selection · select everything |
 | <kbd>←</kbd> <kbd>→</kbd> | Move by a day (<kbd>Shift</kbd>: a week; <kbd>Alt</kbd>: resize) |
 | <kbd>↑</kbd> <kbd>↓</kbd> | Move to the phase above or below |
@@ -253,7 +267,7 @@ baseline:
 
 Then click the timeline button in the left ribbon, or run **Simple Gantt: New dissertation timeline** from the command palette.
 
-**Commands:** Open timeline · New dissertation timeline · New blank timeline · Open this note as a timeline
+**Commands:** Open timeline · Show overview in the sidebar · New dissertation timeline · New blank timeline · Open this note as a timeline
 
 ## Development
 

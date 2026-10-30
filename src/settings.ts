@@ -11,6 +11,8 @@ export interface SimpleGanttSettings {
 	lastProject: string | null;
 	/** Timeline notes this plugin knows about, most recent first. Kept so the plugin never has to scan the vault. */
 	projects: string[];
+	/** Show the button in the left ribbon. */
+	showRibbon: boolean;
 }
 
 export const DEFAULT_SETTINGS: SimpleGanttSettings = {
@@ -18,7 +20,11 @@ export const DEFAULT_SETTINGS: SimpleGanttSettings = {
 	exportFolder: "",
 	lastProject: null,
 	projects: [],
+	showRibbon: true,
 };
+
+const PANEL_DESC =
+	"A small panel with your next deadline, what's on now and what's coming up. Once it's open, drag its icon onto any tab group in the sidebars, for example next to Files at the top or into the bottom half.";
 
 export class SimpleGanttSettingTab extends PluginSettingTab {
 	constructor(app: App, private plugin: SimpleGanttPlugin) {
@@ -40,6 +46,23 @@ export class SimpleGanttSettingTab extends PluginSettingTab {
 			},
 			{
 				type: "group",
+				heading: "Ribbon and sidebar",
+				items: [
+					{
+						name: "Ribbon button",
+						desc: "Show the timeline button in the left ribbon.",
+						control: { type: "toggle", key: "showRibbon" },
+					},
+					{
+						name: "Overview panel",
+						desc: PANEL_DESC,
+						aliases: ["sidebar", "icon", "panel", "move"],
+						render: (setting) => this.panelButtons(setting),
+					},
+				],
+			},
+			{
+				type: "group",
 				heading: "Support",
 				items: [
 					{
@@ -53,15 +76,28 @@ export class SimpleGanttSettingTab extends PluginSettingTab {
 		];
 	}
 
+	private panelButtons(setting: Setting) {
+		setting
+			.addButton((b) => b.setButtonText("Left sidebar").onClick(() => void this.plugin.showOverview("left")))
+			.addButton((b) => b.setButtonText("Right sidebar").onClick(() => void this.plugin.showOverview("right")));
+	}
+
 	private coffeeButton(setting: Setting) {
 		setting.addButton((b) => b.setButtonText("☕ Buy me a coffee").onClick(() => window.open(SUPPORT_URL)));
 	}
 
 	getControlValue(key: string): unknown {
+		if (key === "showRibbon") return this.plugin.settings.showRibbon;
 		return key === "folder" || key === "exportFolder" ? this.plugin.settings[key] : undefined;
 	}
 
 	async setControlValue(key: string, value: unknown): Promise<void> {
+		if (key === "showRibbon") {
+			this.plugin.settings.showRibbon = value === true;
+			this.plugin.setRibbon(value === true);
+			await this.plugin.saveSettings();
+			return;
+		}
 		if (key !== "folder" && key !== "exportFolder") return;
 		this.plugin.settings[key] = (typeof value === "string" ? value : "").trim().replace(/^\/+|\/+$/g, "");
 		await this.plugin.saveSettings();
@@ -91,6 +127,17 @@ export class SimpleGanttSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}),
 			);
+
+		new Setting(containerEl).setName("Ribbon and sidebar").setHeading();
+		new Setting(containerEl)
+			.setName("Ribbon button")
+			.setDesc("Show the timeline button in the left ribbon.")
+			.addToggle((t) => t.setValue(this.plugin.settings.showRibbon).onChange(async (v) => {
+				this.plugin.settings.showRibbon = v;
+				this.plugin.setRibbon(v);
+				await this.plugin.saveSettings();
+			}));
+		this.panelButtons(new Setting(containerEl).setName("Overview panel").setDesc(PANEL_DESC));
 
 		new Setting(containerEl).setName("Support").setHeading();
 		this.coffeeButton(

@@ -24,6 +24,7 @@ proto.createEl ??= function (this: HTMLElement, tag: keyof HTMLElementTagNameMap
 	return el;
 };
 proto.createDiv ??= function (this: HTMLElement, o?: Info) { return (this as unknown as { createEl: typeof make }).createEl("div", o); };
+proto.createSpan ??= function (this: HTMLElement, o?: Info) { return (this as unknown as { createEl: typeof make }).createEl("span", o); };
 proto.setCssProps ??= function (this: HTMLElement, props: Record<string, string>) {
 	for (const [k, v] of Object.entries(props)) this.style.setProperty(k, v);
 };
