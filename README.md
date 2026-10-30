@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/hero-dark.png">
-    <img alt="Simple Gantt showing a year-long dissertation plan in Obsidian" src="docs/images/hero-light.png" width="100%">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Nexziz/simple-gantt/main/docs/images/hero-dark.png">
+    <img alt="Simple Gantt showing a year-long dissertation plan in Obsidian" src="https://raw.githubusercontent.com/Nexziz/simple-gantt/main/docs/images/hero-light.png" width="100%">
   </picture>
 </p>
 
@@ -12,22 +12,25 @@
 <p align="center">Plan a project, or a whole dissertation year, on one timeline. Your plan stays a normal note, and one click gives you a print-ready chart for your report.</p>
 
 <p align="center">
+  <a href="https://buymeacoffee.com/nexsiz"><img alt="Buy me a coffee" src="https://raw.githubusercontent.com/Nexziz/simple-gantt/main/docs/images/buy-me-a-coffee.png" height="48"></a>
+</p>
+
+<p align="center">
   <a href="https://github.com/Nexziz/simple-gantt/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/Nexziz/simple-gantt?style=flat-square&color=7c5cff&label=release"></a>
   <a href="https://github.com/Nexziz/simple-gantt/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/Nexziz/simple-gantt/total?style=flat-square&color=20b48c"></a>
   <img alt="Obsidian 1.7.2 or newer" src="https://img.shields.io/badge/Obsidian-1.7.2%2B-483699?style=flat-square&logo=obsidian&logoColor=white">
   <img alt="Works on mobile" src="https://img.shields.io/badge/mobile-yes-555?style=flat-square">
-  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/github/license/Nexziz/simple-gantt?style=flat-square&color=555"></a>
-  <a href="https://buymeacoffee.com/nexsiz"><img alt="Buy me a coffee" src="https://img.shields.io/badge/Buy%20me%20a%20coffee-FFDD00?style=flat-square&logo=buymeacoffee&logoColor=black"></a>
+  <a href="https://github.com/Nexziz/simple-gantt/blob/main/LICENSE"><img alt="MIT license" src="https://img.shields.io/github/license/Nexziz/simple-gantt?style=flat-square&color=555"></a>
 </p>
 
 <p align="center">
-  <a href="#see-it-in-action">See it in action</a> ·
-  <a href="#features">Features</a> ·
-  <a href="#quick-add">Quick add</a> ·
-  <a href="#keyboard-and-mouse">Keyboard &amp; mouse</a> ·
-  <a href="#where-your-data-lives">Your data</a> ·
-  <a href="#install">Install</a> ·
-  <a href="#support">Support</a>
+  <a href="https://github.com/Nexziz/simple-gantt#see-it-in-action">See it in action</a> ·
+  <a href="https://github.com/Nexziz/simple-gantt#features">Features</a> ·
+  <a href="https://github.com/Nexziz/simple-gantt#quick-add">Quick add</a> ·
+  <a href="https://github.com/Nexziz/simple-gantt#keyboard-and-mouse">Keyboard &amp; mouse</a> ·
+  <a href="https://github.com/Nexziz/simple-gantt#where-your-data-lives">Your data</a> ·
+  <a href="https://github.com/Nexziz/simple-gantt#install">Install</a> ·
+  <a href="https://github.com/Nexziz/simple-gantt#support">Support</a>
 </p>
 
 - ⚡ **One line to add anything.** Type `Interviews 3–28 May #data` and it lands in the right phase on the right dates. Deadlines, milestones, places and journal notes work the same way.
@@ -39,42 +42,42 @@
 ### Add things in one line
 The live preview shows exactly what you'll get before you press <kbd>Enter</kbd>.
 
-![Quick add](docs/gifs/quick-add.gif)
+![Quick add](https://raw.githubusercontent.com/Nexziz/simple-gantt/main/docs/gifs/quick-add.gif)
 
 ### Drag to move, resize and push
 While you drag, guides show the new dates. Hold <kbd>Shift</kbd> to move everything after it too.
 
-![Dragging bars](docs/gifs/drag.gif)
+![Dragging bars](https://raw.githubusercontent.com/Nexziz/simple-gantt/main/docs/gifs/drag.gif)
 
 ### Link steps so the order holds
 Drag the dot at the end of a bar onto what comes next. Move the first step and the next one follows. Click a line to detach it.
 
-![Linking and unlinking](docs/gifs/link.gif)
+![Linking and unlinking](https://raw.githubusercontent.com/Nexziz/simple-gantt/main/docs/gifs/link.gif)
 
 ### Select several, like on a Canvas
 Use the select tool (<kbd>V</kbd>) or <kbd>Shift</kbd>-drag on an empty spot to draw a box. Drag one item and the whole group moves.
 
-![Box select and group move](docs/gifs/select.gif)
+![Box select and group move](https://raw.githubusercontent.com/Nexziz/simple-gantt/main/docs/gifs/select.gif)
 
 ### Right-click menus and renaming in place
 Every item, link and row has a menu. Double-click an item (or press <kbd>F2</kbd>) to rename it right on the chart.
 
-![Right-click menu and rename](docs/gifs/menu-rename.gif)
+![Right-click menu and rename](https://raw.githubusercontent.com/Nexziz/simple-gantt/main/docs/gifs/menu-rename.gif)
 
 ### Tick things off, then ask "how did it go?"
 Confetti, a mood and a line of reflection, collected in a journal you can save as a note for your reflective chapter.
 
-![Ticking off a milestone](docs/gifs/done.gif)
+![Ticking off a milestone](https://raw.githubusercontent.com/Nexziz/simple-gantt/main/docs/gifs/done.gif)
 
 ### Zoom and fold
 Year, quarter or month, with smooth zooming. Fold a phase into one summary bar, or press <kbd>F</kbd> to fold everything.
 
-![Zoom and fold](docs/gifs/zoom-fold.gif)
+![Zoom and fold](https://raw.githubusercontent.com/Nexziz/simple-gantt/main/docs/gifs/zoom-fold.gif)
 
 ### Critical path and plan vs. reality
 <kbd>C</kbd> highlights the chain with the least slack before a deadline. <kbd>B</kbd> compares today's chart with the plan you saved, showing where everything was planned and how far it moved.
 
-![Critical path and saved plan](docs/gifs/insights.gif)
+![Critical path and saved plan](https://raw.githubusercontent.com/Nexziz/simple-gantt/main/docs/gifs/insights.gif)
 
 ## Features
 
@@ -90,7 +93,7 @@ Year, quarter or month, with smooth zooming. Fold a phase into one summary bar, 
 | ⌖ **Location** | Where you'll be: fieldwork, trips, retreats. |
 
 - **Year overview first.** The board opens on the whole project with a today line. Zoom to **Quarter** or **Month**, or use Ctrl/Cmd + scroll.
-- **Quick add** understands dates, durations, phases, types and progress (see [Quick add](#quick-add)).
+- **Quick add** understands dates, durations, phases, types and progress (see [Quick add](https://github.com/Nexziz/simple-gantt#quick-add)).
 - **Right-click an empty row** to add a task, milestone, deadline or place exactly there, with its name ready to type.
 - **Buffer time:** plan slack for the delays that always come (hatched bars, `~` in quick add).
 - **Plan B / decision points:** *"If this isn't done by 8 Jan, I'll use public data instead."* When the date comes, you decide: switch to Plan B (the original stays, faded, as a record) or carry on.
@@ -144,11 +147,11 @@ Year, quarter or month, with smooth zooming. Fold a phase into one summary bar, 
 
 | Print export | Dark, quarter zoom |
 |---|---|
-| ![Export](docs/images/01-export-light.png) | ![Dark](docs/images/05-dark-quarter.png) |
+| ![Export](https://raw.githubusercontent.com/Nexziz/simple-gantt/main/docs/images/01-export-light.png) | ![Dark](https://raw.githubusercontent.com/Nexziz/simple-gantt/main/docs/images/05-dark-quarter.png) |
 | **Journal** | **Plan B** |
-| ![Journal](docs/images/13-journal.png) | ![Plan B](docs/images/12-plan-b.png) |
+| ![Journal](https://raw.githubusercontent.com/Nexziz/simple-gantt/main/docs/images/13-journal.png) | ![Plan B](https://raw.githubusercontent.com/Nexziz/simple-gantt/main/docs/images/12-plan-b.png) |
 | **Editing** | **Features on/off** |
-| ![Edit panel](docs/images/04-edit-panel.png) | ![Features](docs/images/19-features.png) |
+| ![Edit panel](https://raw.githubusercontent.com/Nexziz/simple-gantt/main/docs/images/04-edit-panel.png) | ![Features](https://raw.githubusercontent.com/Nexziz/simple-gantt/main/docs/images/19-features.png) |
 
 ## Quick add
 
@@ -244,9 +247,8 @@ baseline:
 
 ## Install
 
-Until Simple Gantt is listed in Community plugins:
-
-- **With [BRAT](https://github.com/TfTHacker/obsidian42-brat):** add the beta plugin `Nexziz/simple-gantt`.
+- **From Obsidian:** Settings → Community plugins → Browse, search for **Simple Gantt**, then **Install** and **Enable**.
+- **With [BRAT](https://github.com/TfTHacker/obsidian42-brat)** (to try new versions first): add the beta plugin `Nexziz/simple-gantt`.
 - **By hand:** download `main.js`, `manifest.json` and `styles.css` from the [latest release](https://github.com/Nexziz/simple-gantt/releases/latest), put them in `<your vault>/.obsidian/plugins/simple-gantt/`, and enable **Simple Gantt** under Settings → Community plugins.
 
 Then click the timeline button in the left ribbon, or run **Simple Gantt: New dissertation timeline** from the command palette.
@@ -274,10 +276,10 @@ npm run gifs         # records the GIFs in docs/gifs and the hero images (needs 
 
 Simple Gantt is free and open source. If it helps you plan your dissertation or your project, you can say thanks with a coffee. It keeps the updates coming ☕
 
-<a href="https://buymeacoffee.com/nexsiz"><img src="docs/images/buy-me-a-coffee.png" alt="Buy me a coffee" height="52"></a>
+<a href="https://buymeacoffee.com/nexsiz"><img src="https://raw.githubusercontent.com/Nexziz/simple-gantt/main/docs/images/buy-me-a-coffee.png" alt="Buy me a coffee" height="52"></a>
 
 Bug reports and ideas are welcome too, in [Issues](https://github.com/Nexziz/simple-gantt/issues).
 
 ## License
 
-[MIT](LICENSE)
+[MIT](https://github.com/Nexziz/simple-gantt/blob/main/LICENSE)
