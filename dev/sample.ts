@@ -41,7 +41,7 @@ export const SAMPLE: Project = {
 		{ id: "e2", type: "task", title: "Results & discussion", phase: "writing", start: "2027-06-01", end: "2027-07-30" },
 		{ id: "e3", type: "milestone", title: "Full draft", phase: "writing", start: "2027-08-02", after: ["e2"] },
 		{ id: "f1", type: "task", title: "Revisions", phase: "submission", start: "2027-08-02", end: "2027-08-20", after: ["e3"] },
-		{ id: "f2", type: "task", title: "Proofread", phase: "submission", start: "2027-08-16", end: "2027-08-25" },
+		{ id: "f2", type: "task", title: "Proofread", phase: "submission", start: "2027-08-21", end: "2027-08-25", after: ["f1"] },
 		{ id: "k1", type: "deadline", title: "Ethics committee", start: "2027-01-08" },
 		{ id: "k2", type: "deadline", title: "Submission", start: "2027-08-27", after: ["f2"] },
 		{ id: "k3", type: "event", title: "Progress review", start: "2026-12-03" },
@@ -56,4 +56,17 @@ export const SAMPLE: Project = {
 		{ id: "j2", date: "2026-09-25", mood: 5, text: "Reading list done early. Zotero finally organised." },
 		{ id: "j3", date: "2026-10-09", mood: 2, text: "Struggling to frame the research question. Too many directions. Booked an extra meeting." },
 	],
+};
+
+/** The plan as it was saved on 1 Sep: a few things have slipped since. */
+const PLANNED: Record<string, { start: string; end?: string }> = {
+	a2: { start: "2026-10-01", end: "2026-12-04" },
+	b2: { start: "2026-11-02", end: "2026-12-11" },
+	b3: { start: "2027-01-11", end: "2027-02-05" },
+	c1: { start: "2027-02-08", end: "2027-03-26" },
+	d2: { start: "2027-04-26", end: "2027-06-18" },
+};
+SAMPLE.baseline = {
+	saved: "2026-09-01",
+	items: Object.fromEntries(SAMPLE.items.map((i) => [i.id, PLANNED[i.id] ?? (i.end ? { start: i.start, end: i.end } : { start: i.start })])),
 };

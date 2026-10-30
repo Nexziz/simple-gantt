@@ -317,6 +317,75 @@ function check(cond: unknown, msg: string) {
 		check(proj().items.length === count, "…and Ctrl+Z brings them all back");
 		await sleep(600);
 		check((await read()).includes("title: Draft chapter 3"), "group edits are saved to the note");
+		// ── Critical path, saved plan, right-click, rename, duplicate, table export ──
+		const item = (id: string) => proj().items.find((i: any) => i.id === id);
+		key("Escape");
+		board.linkItems(draft.id, edit.id);
+		type("!Chapter 3 hand-in 15 May");
+		const handIn = proj().items.find((i: any) => i.title === "Chapter 3 hand-in");
+		board.linkItems(edit.id, handIn.id);
+		key("c");
+		check(document.querySelector(`.sg-item.is-critical[data-id="${edit.id}"]`) && document.querySelector(".sg-item.is-dimmed"), "C highlights the critical path and dims the rest");
+		check(board["slack"].get(draft.id)?.limit.id === handIn.id, "slack is measured up to the linked deadline");
+		key("c");
+		check(!document.querySelector(".sg-item.is-dimmed"), "C again switches it off");
+
+		board["openProjectPanel"]();
+		([...document.querySelectorAll(".sg-plan-sec .sg-btn")].find((b) => b.textContent?.includes("Save the current plan")) as HTMLButtonElement).click();
+		check(proj().baseline?.items[draft.id], "the current plan can be saved");
+		key("Escape");
+		board["select"](draft.id);
+		key("ArrowRight", { shiftKey: true });
+		key("b");
+		check(document.querySelector(`.sg-item[data-id="${draft.id}"] .sg-planned`), "B shows where an item was planned");
+		check(document.querySelector(".sg-tooltip") && board["driftLine"](item(draft.id))?.textContent?.includes("later than planned"), "the drift is described in words");
+		key("b");
+		check(!document.querySelector(".sg-planned"), "B again hides the saved plan");
+		await sleep(600);
+		check(new RegExp(`baseline:\\n\\s+saved: '?\\d{4}-\\d{2}-\\d{2}'?\\n\\s+items:`).test(await read()), "the saved plan is stored in the note");
+
+		const dm = markOf(draft.id).getBoundingClientRect();
+		markOf(draft.id).dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: dm.left + 3, clientY: dm.top + 3 }));
+		const menuTexts = [...document.querySelectorAll(".sg-menu .sg-menu-item")].map((b) => b.textContent ?? "");
+		check(menuTexts.some((t) => t.startsWith("Rename")) && menuTexts.some((t) => t.startsWith("Duplicate")), "right-click on an item opens its menu");
+		key("Escape");
+		check(!document.querySelector(".sg-menu"), "Esc closes the menu");
+		const laneHit2 = document.querySelector('.sg-lane-hit[data-lane="locations"]')!;
+		laneHit2.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: dm.left, clientY: dm.top }));
+		check([...document.querySelectorAll(".sg-menu .sg-menu-item")].some((b) => b.textContent?.includes("Add a place here")), "right-click on an empty row offers to add something there");
+		key("Escape");
+
+		key("Escape");
+		const click = (id: string) => {
+			const r = markOf(id).getBoundingClientRect();
+			pe("pointerdown", markOf(id), r.left + 3, r.top + 3);
+			pe("pointerup", bodyEl, r.left + 3, r.top + 3);
+		};
+		click(draft.id);
+		click(draft.id);
+		const ri = document.querySelector(".sg-rename") as HTMLInputElement;
+		check(ri && document.activeElement === ri, "double-clicking an item opens a rename field over it");
+		ri.value = "Draft chapter three";
+		ri.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+		check(item(draft.id).title === "Draft chapter three" && !document.querySelector(".sg-rename"), "Enter saves the new name");
+		key("F2");
+		(document.querySelector(".sg-rename") as HTMLInputElement).dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+		check(item(draft.id).title === "Draft chapter three", "F2 renames too, and Esc cancels");
+
+		board["setSelection"]([draft.id, edit.id]);
+		const countBeforeDup = proj().items.length;
+		key("d", { ctrlKey: true });
+		const copies = proj().items.filter((i: any) => i.title.endsWith("(copy)"));
+		const copyEdit = copies.find((i: any) => i.title.startsWith("Edit"));
+		const copyDraft = copies.find((i: any) => i.title.startsWith("Draft"));
+		check(proj().items.length === countBeforeDup + 2 && copyEdit?.after?.includes(copyDraft?.id), "Ctrl+D duplicates the selection, links between them included");
+		check(picked().has(copyEdit?.id) && picked().size === 2, "the copies end up selected");
+
+		await board.exportTable();
+		const csv = app.vault.data.get("Gantt/Renamed in editor.csv") as string;
+		check(csv?.startsWith("Phase,Item,Type,Start,End") && csv.includes("Draft chapter three"), "the plan exports as CSV");
+		await board.copyTable();
+		check(notices.some((n: string) => n.includes("Markdown table")) || app.vault.data.has("Gantt/Renamed in editor table.md"), "the plan copies as a Markdown table");
 		log.push(`notices: ${JSON.stringify(notices)}`);
 		(window as any).__note = await app.vault.read(file);
 	} catch (e) {

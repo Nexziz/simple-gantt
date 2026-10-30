@@ -135,6 +135,8 @@ export interface Project {
 	density?: "compact";
 	/** Optional features switched off for this project (see core/features). */
 	off?: import("./features").Feature[];
+	/** A saved copy of the plan's dates, to compare against (see core/baseline). */
+	baseline?: import("./baseline").Baseline;
 }
 
 export function newId(): string {

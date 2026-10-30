@@ -115,3 +115,43 @@ export function linkConflicts(project: Project): Conflict[] {
 	}
 	return out;
 }
+
+export interface Slack {
+	/** Days this item can finish later before a fixed item (a deadline or something finished) is hit. */
+	days: number;
+	/** The fixed item that limits it. */
+	limit: GanttItem;
+}
+
+/**
+ * How far each open item can slip before its chain of links runs into a deadline or a finished item.
+ * Items whose links never reach one are free and get no entry. Zero (or less) means the item is on the
+ * critical path: any delay pushes, or already misses, that deadline.
+ */
+export function computeSlack(project: Project): Map<string, Slack> {
+	const live = project.items.filter((i) => !i.dropped);
+	const succs = new Map<string, GanttItem[]>();
+	for (const s of live) for (const id of s.after ?? []) succs.set(id, [...(succs.get(id) ?? []), s]);
+	const memo = new Map<string, Slack | null>();
+	const visit = (item: GanttItem): Slack | null => {
+		if (memo.has(item.id)) return memo.get(item.id)!;
+		memo.set(item.id, null); // links never loop, but be safe
+		let best: Slack | null = null;
+		for (const s of succs.get(item.id) ?? []) {
+			const gap = toDay(s.start) - earliestAfter(item, s);
+			const down = fixed(s) ? { days: 0, limit: s } : visit(s);
+			if (!down) continue;
+			const days = gap + down.days;
+			if (!best || days < best.days) best = { days, limit: down.limit };
+		}
+		memo.set(item.id, best);
+		return best;
+	};
+	const out = new Map<string, Slack>();
+	for (const it of live) {
+		if (fixed(it)) continue;
+		const s = visit(it);
+		if (s) out.set(it.id, s);
+	}
+	return out;
+}

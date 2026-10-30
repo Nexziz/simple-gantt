@@ -2,7 +2,9 @@ import { MONTHS_LONG, formatDay, formatDuration, formatRange, fromDay, toDay, ym
 import { PROMPTS, REVIEW_PROMPTS, prompt, slotStates } from "../core/journal";
 import { Nudge, computeNudges, nextDeadline, overallProgress, rippleShift } from "../core/nudges";
 import { FEATURES, Feature, PRESETS, isOn, setFeature } from "../core/features";
-import { addLink, enforceLinks, predecessorsOf, pruneLinks, removeLink, successorsOf, wouldCycle } from "../core/links";
+import { Slack, addLink, computeSlack, enforceLinks, predecessorsOf, pruneLinks, removeLink, successorsOf, wouldCycle } from "../core/links";
+import { baselineSummary, driftOf, saveBaseline } from "../core/baseline";
+import { toCsv, toMarkdownTable } from "../core/table";
 import { Layout, Placed, computeLayout } from "../core/layout";
 import { ParseResult, parseQuickAdd } from "../core/parse";
 import { MOOD_COLORS, connectorX, makeMeasure, paintBody, paintHeader, paintLabels, renderExportSvg, svgEl, svgToPng, svgToString } from "../core/render";
@@ -127,6 +129,15 @@ export class GanttBoard {
 	private selectedLink: string | null = null;
 	/** The select tool: dragging on empty space draws a selection box instead of a task. */
 	private selectTool = false;
+	/** Highlight the tightest chain of links before each deadline. */
+	private showCritical = false;
+	/** Show where items sat in the saved plan. */
+	private comparePlan = false;
+	/** Slack per item, recomputed on every render. */
+	private slack = new Map<string, Slack>();
+	/** The last plain click on an item, to spot a double-click (the board re-renders between clicks). */
+	private lastClick: { id: string; at: number } | null = null;
+	private renameInput: HTMLInputElement | null = null;
 	private flashId: string | null = null;
 	private quickType: ItemType = "task";
 	private activePhase: string | null = null;
@@ -152,6 +163,8 @@ export class GanttBoard {
 	private journalBtn!: El;
 	private selectBtn!: El;
 	private selBar!: El;
+	private criticalBtn!: El;
+	private compareBtn!: El;
 	private nudgeBar!: El;
 	private quick!: El;
 	private quickInput!: HTMLInputElement;
@@ -258,6 +271,12 @@ export class GanttBoard {
 		this.foldBtn = h("button", { cls: "sg-btn sg-icon-btn", kids: [icon("fold")], attrs: { "aria-label": "Fold all phases (F)" } }, this.toolbar);
 		this.foldBtn.addEventListener("click", () => this.toggleFoldAll());
 		this.toolbar.insertBefore(this.foldBtn, settingsBtn);
+		this.criticalBtn = h("button", { cls: "sg-btn sg-icon-btn sg-toggle", kids: [icon("route")], attrs: { "aria-label": "Critical path (C): the chains with the least slack", "aria-pressed": "false" } });
+		this.criticalBtn.addEventListener("click", () => this.toggleCritical());
+		this.toolbar.insertBefore(this.criticalBtn, this.foldBtn);
+		this.compareBtn = h("button", { cls: "sg-btn sg-icon-btn sg-toggle", kids: [icon("baseline")], attrs: { "aria-label": "Compare with the saved plan (B)", "aria-pressed": "false" } });
+		this.compareBtn.addEventListener("click", () => this.toggleCompare());
+		this.toolbar.insertBefore(this.compareBtn, this.foldBtn);
 		const helpBtn = h("button", { cls: "sg-btn sg-icon-btn", kids: [icon("help")], attrs: { "aria-label": "How to use (?)" } }, this.toolbar);
 		helpBtn.addEventListener("click", () => this.openHelp(helpBtn));
 
@@ -367,6 +386,15 @@ export class GanttBoard {
 		this.undoBtn.disabled = !this.undoStack.length;
 		this.pruneSelection();
 		this.renderSelectionBar();
+		if (!p?.baseline) this.comparePlan = false;
+		if (!this.on("links")) this.showCritical = false;
+		this.criticalBtn.classList.toggle("sg-hidden", !this.on("links"));
+		this.compareBtn.classList.toggle("sg-hidden", !p?.baseline);
+		for (const [b, on] of [[this.criticalBtn, this.showCritical], [this.compareBtn, this.comparePlan]] as const) {
+			b.classList.toggle("is-active", on);
+			b.setAttribute("aria-pressed", String(on));
+		}
+		this.slack = p && this.on("links") ? computeSlack(p) : new Map();
 		if (!p) {
 			this.layout = null;
 			this.stats.replaceChildren();
@@ -385,6 +413,8 @@ export class GanttBoard {
 		const paint = {
 			theme: this.theme, measure: this.measure, today: toDay(this.host.today()),
 			selectedIds: this.selectedIds, selectedLink: this.selectedLink, flashId: this.flashId, interactive: true,
+			critical: this.showCritical ? this.criticalSet() : null,
+			plan: this.comparePlan ? p.baseline : null,
 		};
 		this.canvas.setCssProps({
 			"--sg-cols": `${labelW}px ${layout.width}px`,
@@ -781,6 +811,299 @@ export class GanttBoard {
 		this.host.notify(undo ? `Marked ${items.length} items as not done` : `Ticked off ${items.length} items 🎉`);
 	}
 
+	// ─── Right-click menu, rename, duplicate ───────────────────────────────
+
+	private openContextMenu(e: MouseEvent) {
+		if (!this.project || !this.layout) return;
+		const target = e.target as Element;
+		const p = this.project;
+		const kbd = (k: string) => h("kbd", { cls: "sg-menu-kbd", text: k });
+		const at = { x: e.clientX, y: e.clientY };
+		const linkEl = target.closest(".sg-link");
+		const itemEl = target.closest('.sg-item[data-kind="item"]');
+		const laneEl = target.closest(".sg-lane-hit");
+		if (linkEl) {
+			e.preventDefault();
+			const key = linkEl.getAttribute("data-link");
+			const [pred, succ] = (key ?? "").split(" ").map((id) => this.findItem(id));
+			if (!pred || !succ) return;
+			this.selectLink(key);
+			this.popMenu(at, (menu) => {
+				h("div", { cls: "sg-menu-label", text: `“${succ.title}” starts after “${pred.title}”` }, menu);
+				this.menuItem(menu, [icon("unlink", 14), span("Unlink"), kbd("Del")], () => this.unlinkSelected());
+				this.menuItem(menu, [icon(pred.type, 14), span(`Show “${pred.title}”`)], () => this.showItem(pred.id));
+				this.menuItem(menu, [icon(succ.type, 14), span(`Show “${succ.title}”`)], () => this.showItem(succ.id));
+			});
+			return;
+		}
+		if (itemEl) {
+			e.preventDefault();
+			const id = itemEl.getAttribute("data-id")!;
+			const item = this.findItem(id);
+			if (!item) return;
+			if (this.selectedIds.size > 1 && this.selectedIds.has(id)) return this.multiMenu(at);
+			this.select(id);
+			this.popMenu(at, (menu) => {
+				h("div", { cls: "sg-menu-label", text: item.title }, menu);
+				this.menuItem(menu, [icon("note", 14), span("Edit details…")], () => this.select(id, true));
+				this.menuItem(menu, [icon("pencil", 14), span("Rename"), kbd("F2")], () => this.startRename(id));
+				if (isCheckable(item) && !item.dropped)
+					this.menuItem(menu, [icon("check", 14), span(isDone(item) ? "Mark as not done" : "Mark as done"), kbd("Space")], () => this.toggleDone(item));
+				this.menuItem(menu, [icon("copy", 14), span("Duplicate"), kbd("Ctrl D")], () => this.duplicateSelection());
+				h("div", { cls: "sg-menu-sep" }, menu);
+				this.menuItem(menu, [icon("push", 14), span("Push this and what follows +1 week")], () => {
+					this.mutate(() => rippleShift(p, item, 7));
+					this.host.notify("Moved it and everything after it by a week");
+				});
+				if (this.on("buffers") && ((item.type === "task" && !item.buffer) || item.type === "milestone"))
+					this.menuItem(menu, [icon("buffer", 14), span("Add 2 weeks of buffer after")], () => this.addBufferAfter(item));
+				if (this.on("planb") && isCheckable(item) && !item.planB && !item.dropped)
+					this.menuItem(menu, [icon("branch", 14), span("Add a Plan B…")], () => this.select(id, true, "planb"));
+				h("div", { cls: "sg-menu-sep" }, menu);
+				this.menuItem(menu, [icon("trash", 14), span("Delete"), kbd("Del")], () => this.deleteItem(id), "is-danger");
+			});
+			return;
+		}
+		if (laneEl) {
+			const lane = this.layout.lanes.find((l) => l.key === laneEl.getAttribute("data-lane"));
+			if (!lane || lane.kind === "journal") return;
+			e.preventDefault();
+			const day = this.layout.dayAt(this.bodyPoint(e).x);
+			// Like Canvas: the new item appears where you clicked, with its name ready to type.
+			const add = (item: Omit<GanttItem, "id">) => {
+				const id = newId();
+				this.snapshot();
+				this.addItem({ ...item, id });
+				this.select(id);
+				this.startRename(id);
+			};
+			this.popMenu(at, (menu) => {
+				h("div", { cls: "sg-menu-label", text: `${lane.kind === "phase" ? `${lane.phase?.name ?? "Other"} · ` : ""}${formatDay(day)}` }, menu);
+				if (lane.kind === "phase") {
+					const phase = lane.phase?.id;
+					this.menuItem(menu, [icon("task", 14), span("Add a task here")], () => add({ type: "task", title: "New task", start: fromDay(day), end: fromDay(day + 13), phase }));
+					this.menuItem(menu, [icon("milestone", 14), span("Add a milestone here")], () => add({ type: "milestone", title: "New milestone", start: fromDay(day), phase }));
+					if (this.on("buffers")) this.menuItem(menu, [icon("buffer", 14), span("Add buffer time here")], () => add({ type: "task", buffer: true, title: "Buffer", start: fromDay(day), end: fromDay(day + 13), phase }));
+					const inRow = this.layout?.placed.filter((x) => x.kind === "item" && x.lane === lane).map((x) => x.item.id) ?? [];
+					if (inRow.length) {
+						h("div", { cls: "sg-menu-sep" }, menu);
+						this.menuItem(menu, [icon("select", 14), span(`Select all ${inRow.length} in this phase`)], () => this.setSelection(inRow));
+					}
+				} else if (lane.kind === "keydates") {
+					this.menuItem(menu, [icon("deadline", 14), span("Add a deadline here")], () => add({ type: "deadline", title: "New deadline", start: fromDay(day) }));
+					if (this.on("events")) this.menuItem(menu, [icon("event", 14), span("Add a key date here")], () => add({ type: "event", title: "New key date", start: fromDay(day) }));
+				} else if (lane.kind === "locations") {
+					this.menuItem(menu, [icon("location", 14), span("Add a place here")], () => add({ type: "location", title: "New location", start: fromDay(day), end: fromDay(day + 6) }));
+				}
+			});
+		}
+	}
+
+	/** Right-click on one of several selected items. */
+	private multiMenu(at: { x: number; y: number }) {
+		const n = this.selectedIds.size;
+		const kbd = (k: string) => h("kbd", { cls: "sg-menu-kbd", text: k });
+		this.popMenu(at, (menu) => {
+			h("div", { cls: "sg-menu-label", text: `${n} selected` }, menu);
+			this.menuItem(menu, [icon("chevronLeft", 14), span("1 week earlier"), kbd("⇧ ←")], () => this.shiftSelection(-7));
+			this.menuItem(menu, [icon("chevronRight", 14), span("1 week later"), kbd("⇧ →")], () => this.shiftSelection(7));
+			if (this.on("links")) this.menuItem(menu, [icon("branch", 14), span("Link in date order")], () => this.linkSelection());
+			this.menuItem(menu, [icon("check", 14), span("Mark as done"), kbd("Space")], () => this.toggleDoneSelection());
+			this.menuItem(menu, [icon("copy", 14), span("Duplicate"), kbd("Ctrl D")], () => this.duplicateSelection());
+			h("div", { cls: "sg-menu-sep" }, menu);
+			this.menuItem(menu, [icon("trash", 14), span(`Delete ${n} items`), kbd("Del")], () => this.deleteSelection(), "is-danger");
+		});
+	}
+
+	/** Select an item, open its panel and scroll it into view. */
+	private showItem(id: string) {
+		this.select(id, true, null);
+		this.revealItem(id);
+	}
+
+	/** Copy the selected items (with links between them kept) and select the copies. */
+	duplicateSelection() {
+		const p = this.project;
+		const items = this.selectedItems();
+		if (!p || !items.length) return;
+		this.snapshot();
+		const ids = new Map(items.map((i) => [i.id, newId()]));
+		const copies = items.map((i) => {
+			const c = cloneProject({ items: [i] } as unknown as Project).items[0];
+			c.id = ids.get(i.id)!;
+			c.title = `${i.title} (copy)`;
+			delete c.done;
+			delete c.doneOn;
+			delete c.review;
+			delete c.dropped;
+			if (c.planB) delete c.planB.status;
+			if (c.after) c.after = c.after.map((a) => ids.get(a) ?? a);
+			return c;
+		});
+		p.items.push(...copies);
+		this.selectedIds = new Set(copies.map((c) => c.id));
+		this.selectedLink = null;
+		this.flashId = copies.length === 1 ? copies[0].id : null;
+		if (this.panelMode === "item") {
+			if (copies.length === 1) this.refreshPanel();
+			else this.closePanel();
+		}
+		this.commit();
+		this.host.notify(copies.length === 1 ? `Duplicated “${items[0].title}”` : `Duplicated ${copies.length} items`);
+	}
+
+	/** Rename in place: a text field right over the item's label. */
+	startRename(id: string) {
+		this.finishRename(false);
+		const item = this.findItem(id);
+		const p = this.layout?.placed.find((x) => x.kind === "item" && x.item.id === id);
+		const g = this.bodyWrap.querySelector(`.sg-item[data-id="${CSS.escape(id)}"]`);
+		if (!item || !p || !g || !this.layout) return;
+		const body = this.bodyWrap.getBoundingClientRect();
+		const root = this.root.getBoundingClientRect();
+		const point = !isRangeType(item.type);
+		const left = p.labelInside ? p.x0 : p.labelAnchor === "end" ? p.labelX - Math.max(p.labelW, 160) : point ? p.x1 + 4 : p.labelX - 6;
+		const width = Math.max(170, p.labelInside ? p.x1 - p.x0 : p.labelW + 40);
+		const hgt = this.layout.g.barH + 4;
+		const input = h("input", { cls: "sg-rename", attrs: { type: "text", "aria-label": "Rename", spellcheck: "false" } }, this.root);
+		input.value = item.title;
+		// Keep the field inside the board, even for items near its right edge.
+		const x = Math.max(8, Math.min(body.left - root.left + left, root.width - width - 12));
+		input.setCssProps({
+			"--sg-rename-x": `${x}px`,
+			"--sg-rename-y": `${body.top - root.top + p.cy - hgt / 2}px`,
+			"--sg-rename-w": `${width}px`,
+			"--sg-rename-h": `${hgt}px`,
+		});
+		this.renameInput = input;
+		input.dataset.id = id;
+		input.focus();
+		input.select();
+		input.addEventListener("keydown", (e) => {
+			e.stopPropagation();
+			if (e.key === "Enter") this.finishRename(true);
+			else if (e.key === "Escape") this.finishRename(false);
+		});
+		input.addEventListener("blur", () => this.finishRename(true));
+		this.scroller.addEventListener("scroll", () => this.finishRename(true), { once: true });
+	}
+
+	private finishRename(save: boolean) {
+		const input = this.renameInput;
+		if (!input) return;
+		this.renameInput = null;
+		input.remove();
+		const item = input.dataset.id ? this.findItem(input.dataset.id) : undefined;
+		const title = input.value.trim();
+		if (save && item && title && title !== item.title) this.mutate(() => (item.title = title), this.panelMode === "item");
+		this.root.focus({ preventScroll: true });
+	}
+
+	// ─── Critical path & saved plan ────────────────────────────────────────
+
+	/**
+	 * The tightest chain before each deadline: items with the least slack towards it (and the deadline).
+	 * With a plan that has room to spare this still shows the chain to watch.
+	 */
+	private criticalSet(): Set<string> {
+		const least = new Map<string, number>();
+		for (const s of this.slack.values()) least.set(s.limit.id, Math.min(least.get(s.limit.id) ?? Infinity, s.days));
+		const out = new Set<string>();
+		for (const [id, s] of this.slack) {
+			if (s.days <= Math.max(0, least.get(s.limit.id) ?? 0)) {
+				out.add(id);
+				out.add(s.limit.id);
+			}
+		}
+		return out;
+	}
+
+	toggleCritical() {
+		if (!this.project || !this.on("links")) return;
+		this.showCritical = !this.showCritical;
+		this.render();
+		if (!this.showCritical) return;
+		if (!this.slack.size) return this.host.notify("Link items to a deadline to see the critical path: drag the dot at the end of a bar onto what comes next.");
+		const tight = [...this.slack.values()].sort((a, b) => a.days - b.days)[0];
+		this.host.notify(tight.days < 0
+			? `“${tight.limit.title}” is at risk: the chain before it is ${-tight.days} day${tight.days === -1 ? "" : "s"} late.`
+			: tight.days === 0
+				? `No slack left before “${tight.limit.title}”: any delay on the highlighted chain pushes it.`
+				: `The tightest chain before “${tight.limit.title}” has ${formatDuration(tight.days)} of slack.`);
+	}
+
+	toggleCompare() {
+		if (!this.project?.baseline) return;
+		this.comparePlan = !this.comparePlan;
+		this.render();
+		if (this.comparePlan) {
+			const sum = baselineSummary(this.project);
+			const parts = [sum.later && `${sum.later} later`, sum.earlier && `${sum.earlier} earlier`, sum.added && `${sum.added} new`].filter(Boolean);
+			this.host.notify(`Compared with the plan from ${formatDay(toDay(this.project.baseline.saved))}: ${parts.length ? parts.join(", ") : "everything is on plan"}.`);
+		}
+	}
+
+	/** One line about slack for the tooltip and the panel. */
+	private slackLine(it: GanttItem): HTMLElement | null {
+		const s = this.slack.get(it.id);
+		if (!s) return null;
+		const name = `“${s.limit.title}”`;
+		const text = s.days < 0 ? `${-s.days} day${s.days === -1 ? "" : "s"} too late for ${name}`
+			: s.days === 0 ? `No slack: any delay pushes ${name}`
+				: `${formatDuration(s.days)} of slack before ${name}`;
+		return h("span", { cls: `sg-tt-slack${s.days <= 0 ? " is-tight" : s.days <= 7 ? " is-close" : ""}`, kids: [icon("route", 12), text] });
+	}
+
+	/** "5 days later than planned" for the tooltip and the panel. */
+	private driftLine(it: GanttItem): HTMLElement | null {
+		if (!this.project?.baseline) return null;
+		const d = driftOf(this.project, it);
+		if (!d) return h("span", { cls: "sg-tt-drift", kids: [icon("baseline", 12), "New since the saved plan"] });
+		const planned = isRangeType(it.type) ? formatRange(d.start, d.end) : formatDay(d.start);
+		const shift = d.endShift || d.startShift;
+		const text = shift === 0 ? `On plan (${planned})`
+			: `${formatDuration(Math.abs(shift))} ${shift > 0 ? "later" : "earlier"} than planned (${planned})`;
+		return h("span", { cls: `sg-tt-drift${shift > 0 ? " is-late" : ""}`, kids: [icon("baseline", 12), text] });
+	}
+
+	private buildPlanSection(form: El) {
+		const p = this.project!;
+		h("div", { cls: "sg-section-title", text: "Saved plan" }, form);
+		const sec = h("div", { cls: "sg-plan-sec" }, form);
+		if (!p.baseline) {
+			h("div", { cls: "sg-hint sg-hint-top", text: "Save today's dates as your plan. Later you can see what moved, for example for the reflection chapter of your dissertation." }, sec);
+			const save = h("button", { cls: "sg-btn", kids: [icon("baseline", 14), span("Save the current plan")] }, sec);
+			save.addEventListener("click", () => {
+				this.mutate(() => saveBaseline(p, this.host.today()), true);
+				this.host.notify("Plan saved. Press B (or the toolbar button) to compare with it later.");
+			});
+			return;
+		}
+		const sum = baselineSummary(p);
+		const stats = h("div", { cls: "sg-plan-stats" }, sec);
+		const stat = (n: number, label: string, cls = "") => h("div", { cls: `sg-plan-stat ${cls}`, kids: [h("strong", { text: String(n) }), span(label)] }, stats);
+		stat(sum.later, "later", sum.later ? "is-late" : "");
+		stat(sum.earlier, "earlier");
+		stat(sum.added, "new");
+		h("div", { cls: "sg-hint", text: sum.worst ? `Saved ${formatDay(toDay(p.baseline.saved))}. Most behind: “${sum.worst.item.title}” (${formatDuration(sum.worst.days)}).` : `Saved ${formatDay(toDay(p.baseline.saved))}.` }, sec);
+		const row = h("div", { cls: "sg-plan-actions" }, sec);
+		const cmp = h("button", { cls: `sg-btn${this.comparePlan ? " is-active" : ""}`, kids: [icon("baseline", 14), span(this.comparePlan ? "Hide on chart" : "Show on chart")] }, row);
+		cmp.addEventListener("click", () => {
+			this.toggleCompare();
+			this.refreshPanel();
+		});
+		const upd = h("button", { cls: "sg-btn", kids: [span("Save again")], attrs: { title: "Replace the saved plan with today's dates" } }, row);
+		upd.addEventListener("click", () => {
+			this.mutate(() => saveBaseline(p, this.host.today()), true);
+			this.host.notify("Saved plan updated to today's dates.");
+		});
+		const rm = h("button", { cls: "sg-btn sg-icon-btn", kids: [icon("trash", 14)], attrs: { "aria-label": "Forget the saved plan" } }, row);
+		rm.addEventListener("click", () => {
+			this.mutate(() => delete p.baseline, true);
+			this.host.notify("Saved plan removed. Ctrl+Z to undo.");
+		});
+	}
+
 	// ─── Quick add ─────────────────────────────────────────────────────────
 
 	private parseQuick(): ParseResult | null {
@@ -947,6 +1270,8 @@ export class GanttBoard {
 			}
 		});
 
+		body.addEventListener("contextmenu", (e) => this.openContextMenu(e));
+
 		body.addEventListener("click", (e) => {
 			if ((e.target as Element).closest(".sg-unlink")) return this.unlinkSelected();
 			const el = (e.target as Element).closest(".sg-item");
@@ -1066,9 +1391,12 @@ export class GanttBoard {
 			} else if (d.item && d.additive) {
 				this.toggleSelected(d.item.id);
 			} else if (d.item) {
+				const again = this.lastClick?.id === d.item.id && performance.now() - this.lastClick.at < 400;
+				this.lastClick = again ? null : { id: d.item.id, at: performance.now() };
 				// Plain click: open the panel but keep focus on the board so arrow keys and Space work.
 				this.select(d.item.id, true, null);
-				this.root.focus({ preventScroll: true });
+				if (again) this.startRename(d.item.id);
+				else this.root.focus({ preventScroll: true });
 			}
 		};
 		body.addEventListener("pointerup", finish);
@@ -1191,6 +1519,8 @@ export class GanttBoard {
 		if (it.planB && !it.planB.status && !isDone(it))
 			parts.push(h("span", { cls: "sg-tt-planb", kids: [icon("branch", 12), `Plan B from ${formatDay(toDay(it.planB.by))}: ${it.planB.title || "set up"}`] }));
 		if (it.dropped) parts.push(span("Replaced by Plan B", "sg-tt-hint"));
+		if (!isDone(it) && !it.dropped) parts.push(this.slackLine(it));
+		if (this.comparePlan) parts.push(this.driftLine(it));
 		if (it.description) parts.push(span(it.description, "sg-tt-desc"));
 		if (it.note) parts.push(h("span", { cls: "sg-tt-note", kids: [icon("note", 12), it.note] }));
 		return parts;
@@ -1339,7 +1669,10 @@ export class GanttBoard {
 				["+", "on a row's label to add to that row"],
 				["! * + @ ~ >", "deadline · milestone · key date · place · buffer · journal"],
 			]);
-			section("Move", [
+			section("Move & edit", [
+				["Double-click", "an item to rename it · F2"],
+				["Right-click", "anything for its menu"],
+				["Ctrl + D", "duplicate the selection"],
 				["Drag", "a bar to move it, its edges to resize"],
 				["Shift + drag", "moves everything after it too"],
 				["← →", "1 day · Shift: 1 week · Alt: resize"],
@@ -1355,6 +1688,7 @@ export class GanttBoard {
 			section("Connect & tidy", [
 				["Drag the dot", "at a bar's end onto what comes next"],
 				["Click a line", "to select it · × or Delete unlinks"],
+				["C · B", "critical path · compare with the saved plan"],
 				["Click a phase", "to fold it into one summary bar · F folds all"],
 				["Space", "tick off the selected item"],
 				["J · Ctrl+Z", "journal · undo"],
@@ -1458,9 +1792,22 @@ export class GanttBoard {
 		} else if (mod && e.key.toLowerCase() === "a" && !inField) {
 			e.preventDefault();
 			this.selectAll();
+		} else if (mod && e.key.toLowerCase() === "d" && !inField && this.selectedIds.size) {
+			e.preventDefault();
+			this.duplicateSelection();
+		} else if (e.key === "F2" && !inField && this.selectedId) {
+			e.preventDefault();
+			this.startRename(this.selectedId);
 		} else if (e.key.toLowerCase() === "v" && !inField && !mod) {
 			e.preventDefault();
 			this.setSelectTool(!this.selectTool);
+		} else if (e.key.toLowerCase() === "c" && !inField && !mod) {
+			e.preventDefault();
+			this.toggleCritical();
+		} else if (e.key.toLowerCase() === "b" && !inField && !mod) {
+			e.preventDefault();
+			if (this.project?.baseline) this.toggleCompare();
+			else this.host.notify("No saved plan yet: save one under project settings → Saved plan.");
 		} else if ((e.key === "/" || e.key === "n") && !inField && !mod) {
 			e.preventDefault();
 			this.quickInput.focus();
@@ -1640,6 +1987,8 @@ export class GanttBoard {
 			dur.textContent = isRangeType(item.type) ? `${formatDuration(e - s + 1)} · ${formatRange(s, e)}` : formatDay(s);
 		};
 		syncDur();
+		const facts = [!isDone(item) && !item.dropped ? this.slackLine(item) : null, p.baseline ? this.driftLine(item) : null].filter((x): x is HTMLElement => !!x);
+		if (facts.length) h("div", { cls: "sg-facts", kids: facts }, form);
 		this.editor(start, () => {
 			if (!/^\d{4}-\d{2}-\d{2}$/.test(start.value)) return;
 			const len = item.end ? toDay(item.end) - toDay(item.start) : 0;
@@ -1813,6 +2162,7 @@ export class GanttBoard {
 			last?.select();
 		});
 
+		this.buildPlanSection(form);
 		this.buildFeaturesSection(form);
 
 		h("div", { cls: "sg-section-title", text: "Quick add tips" }, form);
@@ -2484,14 +2834,17 @@ export class GanttBoard {
 
 	// ─── Menus ─────────────────────────────────────────────────────────────
 
-	private popMenu(anchor: El, build: (menu: El) => void): El {
+	/** A menu under a button, or at a point (client coordinates) for right-click menus. */
+	private popMenu(anchor: El | { x: number; y: number }, build: (menu: El) => void): El {
 		this.closeMenu();
 		const menu = h("div", { cls: "sg-menu" }, this.root);
 		build(menu);
-		const r = anchor.getBoundingClientRect();
 		const root = this.root.getBoundingClientRect();
+		const r = "x" in anchor ? { left: anchor.x, bottom: anchor.y - 6 } : anchor.getBoundingClientRect();
 		const left = Math.min(r.left - root.left, root.width - menu.offsetWidth - 8);
-		menu.setCssProps({ "--sg-menu-x": `${Math.max(8, left)}px`, "--sg-menu-y": `${r.bottom - root.top + 6}px` });
+		let top = r.bottom - root.top + 6;
+		if ("x" in anchor && top + menu.offsetHeight > root.height - 8) top = Math.max(8, root.height - menu.offsetHeight - 8);
+		menu.setCssProps({ "--sg-menu-x": `${Math.max(8, left)}px`, "--sg-menu-y": `${top}px` });
 		this.menu = menu;
 		return menu;
 	}
@@ -2526,6 +2879,11 @@ export class GanttBoard {
 			const label = (main: string, note: string) => h("span", { kids: [`${main} `, h("small", { text: note })] });
 			this.menuItem(menu, [icon("download", 14), label("PNG image", "high resolution")], () => void this.exportAs("png"));
 			this.menuItem(menu, [icon("download", 14), label("SVG", "vector, for Word / LaTeX")], () => void this.exportAs("svg"));
+			if (this.comparePlan) h("div", { cls: "sg-menu-hint", text: "Includes the saved plan, as shown." }, menu);
+			h("div", { cls: "sg-menu-sep" }, menu);
+			h("div", { cls: "sg-menu-label", text: "As a table" }, menu);
+			this.menuItem(menu, [icon("copy", 14), label("Copy as Markdown table", "paste into a note")], () => void this.copyTable());
+			this.menuItem(menu, [icon("download", 14), label("CSV", "Excel, Sheets, Numbers")], () => void this.exportTable());
 		});
 	}
 
@@ -2543,10 +2901,34 @@ export class GanttBoard {
 		});
 	}
 
+	private exportBase(): string {
+		return (this.project?.title || "timeline").replace(/[\\/:*?"<>|]+/g, "").trim() || "timeline";
+	}
+
+	async copyTable() {
+		if (!this.project) return;
+		const md = toMarkdownTable(this.project);
+		try {
+			await navigator.clipboard.writeText(md);
+			this.host.notify("Copied the plan as a Markdown table");
+		} catch {
+			await this.host.exportFile(`${this.exportBase()} table.md`, md);
+		}
+	}
+
+	async exportTable() {
+		if (!this.project) return;
+		try {
+			await this.host.exportFile(`${this.exportBase()}.csv`, toCsv(this.project));
+		} catch (err) {
+			this.host.notify(`Export failed: ${(err as Error).message}`);
+		}
+	}
+
 	async exportAs(kind: "png" | "svg") {
 		if (!this.project) return;
-		const svg = renderExportSvg(this.project, { today: toDay(this.host.today()) });
-		const base = (this.project.title || "timeline").replace(/[\\/:*?"<>|]+/g, "").trim() || "timeline";
+		const svg = renderExportSvg(this.project, { today: toDay(this.host.today()), compare: this.comparePlan });
+		const base = this.exportBase();
 		try {
 			if (kind === "svg") await this.host.exportFile(`${base}.svg`, svgToString(svg));
 			else await this.host.exportFile(`${base}.png`, await svgToPng(svg, 2));

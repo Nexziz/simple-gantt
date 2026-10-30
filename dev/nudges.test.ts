@@ -3,7 +3,9 @@ import { toDay } from "../src/core/dates";
 import { checkInSlots, dueCheckIn, slotStates } from "../src/core/journal";
 import { computeNudges, nextDeadline, overallProgress, rippleShift } from "../src/core/nudges";
 import { normalizeProject, toPlain } from "../src/core/serialize";
-import { addLink, enforceLinks, linkConflicts } from "../src/core/links";
+import { addLink, computeSlack, enforceLinks, linkConflicts } from "../src/core/links";
+import { baselineSummary, driftOf, saveBaseline } from "../src/core/baseline";
+import { toCsv, toMarkdownTable } from "../src/core/table";
 import { isOn, setFeature } from "../src/core/features";
 import { computeLayout } from "../src/core/layout";
 import { createFromTemplate } from "../src/core/templates";
@@ -165,6 +167,54 @@ t("features: the blank template starts with the essentials", () => {
 	const blank = createFromTemplate("blank", "x", "2026-10-26");
 	assert.ok(!isOn(blank, "locations") && !isOn(blank, "journal") && isOn(blank, "links") && isOn(blank, "progress"));
 	assert.equal(createFromTemplate("dissertation", "x", "2026-10-26").off, undefined);
+});
+
+t("slack: how far each item can slip before its chain hits a deadline", () => {
+	const p = normalizeProject({
+		start: "2027-01-01", end: "2027-03-31",
+		items: [
+			{ id: "a", type: "task", title: "A", start: "2027-01-01", end: "2027-01-10" },
+			{ id: "b", type: "task", title: "B", start: "2027-01-15", end: "2027-01-20", after: ["a"] },
+			{ id: "d", type: "deadline", title: "Due", start: "2027-01-25", after: ["b"] },
+			{ id: "c", type: "task", title: "Free", start: "2027-01-01", end: "2027-01-05" },
+		],
+	});
+	const s = computeSlack(p);
+	assert.equal(s.get("b")?.days, 5);
+	assert.equal(s.get("a")?.days, 9);
+	assert.equal(s.get("a")?.limit.id, "d");
+	assert.ok(!s.has("c") && !s.has("d"), "unlinked items and the deadline itself have no slack entry");
+	p.items.find((i) => i.id === "b")!.end = "2027-01-27";
+	assert.equal(computeSlack(p).get("b")?.days, -2, "negative slack: the deadline is already missed");
+});
+
+t("baseline: drift from the saved plan, and it survives a round trip", () => {
+	const p = cloneProject(SAMPLE);
+	saveBaseline(p, "2026-10-29");
+	const item = p.items.find((i) => i.id === "c1")!;
+	item.start = "2027-02-18";
+	item.end = "2027-04-12";
+	assert.equal(driftOf(p, item)?.endShift, 3);
+	assert.equal(driftOf(p, p.items.find((i) => i.id === "a1")!)?.endShift, 0);
+	p.items.push({ id: "new1", type: "milestone", title: "New", start: "2027-05-01" });
+	const sum = baselineSummary(p);
+	assert.equal(sum.later, 1);
+	assert.equal(sum.added, 1);
+	assert.equal(sum.worst?.item.id, "c1");
+	const back = normalizeProject(toPlain(p));
+	assert.deepEqual(back.baseline?.items.c1, { start: "2027-02-15", end: "2027-04-09" });
+	assert.equal(back.baseline?.saved, "2026-10-29");
+	assert.equal(driftOf(back, back.items.find((i) => i.id === "c1")!)?.endShift, 3);
+});
+
+t("table export: Markdown table and CSV in phase order", () => {
+	const md = toMarkdownTable(SAMPLE).split("\n");
+	assert.equal(md[0], "| Phase | Item | Type | Start | End | Duration | Status | Starts after |");
+	assert.ok(md[2].startsWith("| Literature review | Scoping & reading list | Task | 2026-09-01 | 2026-09-30 |"), md[2]);
+	assert.ok(md.some((l) => l.includes("| Proofread | Task |") && l.endsWith("| Revisions |")));
+	const csv = toCsv(SAMPLE).split("\r\n");
+	assert.equal(csv[0], "Phase,Item,Type,Start,End,Duration,Status,Starts after");
+	assert.equal(csv.length, SAMPLE.items.length + 2);
 });
 
 console.log(failed ? `\n${failed} failed` : `\nall nudge/journal/link/feature tests passed`);

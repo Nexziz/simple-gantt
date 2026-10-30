@@ -15,7 +15,7 @@ const TODAY = "2026-10-26";
 document.body.classList.add(dark ? "theme-dark" : "theme-light");
 
 if (mode === "export") {
-	const svg = renderExportSvg(SAMPLE, { theme: dark ? DARK_THEME : PRINT_THEME, includeToday: true, today: toDay(TODAY) });
+	const svg = renderExportSvg(SAMPLE, { theme: dark ? DARK_THEME : PRINT_THEME, includeToday: true, today: toDay(TODAY), compare: params.has("compare") });
 	svg.id = "shot";
 	document.body.appendChild(svg);
 } else {
@@ -55,7 +55,13 @@ if (mode === "export") {
 			a.download = name;
 			a.click();
 		},
-		notify: (m) => console.log("notice:", m),
+		notify: (m) => {
+			console.log("notice:", m);
+			const box = document.querySelector(".mock-notices") ?? document.body.appendChild(Object.assign(document.createElement("div"), { className: "mock-notices" }));
+			const n = box.appendChild(Object.assign(document.createElement("div"), { className: "mock-notice", textContent: m }));
+			setTimeout(() => n.classList.add("is-out"), 3200);
+			setTimeout(() => n.remove(), 3600);
+		},
 		openNote: (n) => console.log("open note", n),
 		suggestNotes: (q) => ["Chapters/Chapter 2 - Literature", "Chapters/Chapter 3 - Methods", "Ethics/Application form", "Meetings/Supervisor"].filter((n) => n.toLowerCase().includes(q.toLowerCase())),
 	});

@@ -3,7 +3,7 @@ import { Lane, Layout, MILESTONE_BADGE_PAD, Measure, Placed, computeLayout } fro
 import { PRINT_THEME, Theme, inkOnFill } from "./theme";
 import { earliestAfter } from "./links";
 import { isOn } from "./features";
-import { ITEM_TYPE_LABELS, Mood, Project, isDone } from "./types";
+import { ITEM_TYPE_LABELS, Mood, Project, isDone, isRangeType } from "./types";
 
 /** Mood scale for journal dots: diverging red → neutral grey → blue. */
 export const MOOD_COLORS: Record<Mood, string> = { 1: "#e34948", 2: "#ec9a8c", 3: "#a9a79f", 4: "#6da7ec", 5: "#2a78d6" };
@@ -63,6 +63,10 @@ export interface PaintOptions {
 	selectedIds?: ReadonlySet<string>;
 	/** The selected link, as "predId succId". It gets a detach button. */
 	selectedLink?: string | null;
+	/** Critical path view: these items (zero slack) stand out and everything else steps back. */
+	critical?: ReadonlySet<string> | null;
+	/** Compare with the saved plan: faint outlines show where items were planned. */
+	plan?: Project["baseline"] | null;
 	flashId?: string | null;
 	interactive?: boolean;
 	/** Visible horizontal window [from, to] in timeline px; header labels stay inside it while scrolling. */
@@ -370,6 +374,7 @@ function paintItem(parent: Element, p: Placed, layout: Layout, o: PaintOptions, 
 	const cls = ["sg-item", p.kind === "item" ? `sg-${it.type}` : `sg-${p.kind}`];
 	const selected = o.selectedId === it.id || !!o.selectedIds?.has(it.id);
 	if (selected) cls.push("is-selected");
+	if (o.critical) cls.push(p.kind === "item" && o.critical.has(it.id) ? "is-critical" : "is-dimmed");
 	if (o.flashId === it.id) cls.push("sg-pop");
 	if (it.dropped) cls.push("is-dropped");
 	if (p.state) cls.push(`is-${p.state}`);
@@ -394,6 +399,7 @@ function paintItem(parent: Element, p: Placed, layout: Layout, o: PaintOptions, 
 			fill: "none", stroke: theme.accent, "stroke-width": 2, class: "sg-selection",
 		}, g);
 	}
+	if (o.plan) paintPlanned(g, p, layout, o);
 
 	if (it.type === "task" && it.buffer) {
 		const w = p.x1 - p.x0;
@@ -487,7 +493,8 @@ function paintLinks(svg: SVGSVGElement, layout: Layout, o: PaintOptions): Pt | n
 			const quiet = touchesDeadline && !bad;
 			const key = `${pred.item.id} ${succ.item.id}`;
 			const selected = o.selectedLink === key;
-			const cls = `sg-link${bad ? " is-bad" : ""}${quiet ? " is-quiet" : ""}${selected ? " is-selected" : ""}`;
+			const crit = o.critical ? (o.critical.has(pred.item.id) && (o.critical.has(succ.item.id) || succ.item.type === "deadline") ? " is-critical" : " is-dimmed") : "";
+			const cls = `sg-link${bad ? " is-bad" : ""}${quiet ? " is-quiet" : ""}${selected ? " is-selected" : ""}${crit}`;
 			const link = svgEl("g", { class: cls, "data-link": key }, g);
 			const d = roundedPath(pts, 5);
 			const attrs = { stroke: color, "stroke-linecap": "round", "stroke-linejoin": "round", opacity: bad ? 0.9 : 0.6 };
@@ -584,6 +591,41 @@ function arrowHead(pts: Pt[]): string {
 	const ux = (x - px) / len, uy = (y - py) / len;
 	const bx = x - ux * 6, by = y - uy * 6;
 	return `M${x},${y} L${bx - uy * 3.5},${by + ux * 3.5} L${bx + uy * 3.5},${by - ux * 3.5} Z`;
+}
+
+/** Where an item sat in the saved plan, drawn as a faint dashed outline when it has moved since. */
+function paintPlanned(g: SVGGElement, p: Placed, layout: Layout, o: PaintOptions) {
+	const b = o.plan?.items[p.item.id];
+	if (!b || p.kind !== "item" || p.item.dropped) return;
+	const it = p.item;
+	const s = toDay(b.start), e = toDay(b.end ?? b.start);
+	const ie = toDay(it.end ?? it.start);
+	if (s === toDay(it.start) && e === ie) return;
+	const attrs: Attrs = {
+		fill: "none", stroke: o.theme.inkMuted, "stroke-width": 1.25, "stroke-dasharray": "3 3", opacity: 0.85,
+		"pointer-events": "none", class: "sg-planned",
+	};
+	const top = p.cy - p.lane.markH / 2;
+	if (isRangeType(it.type)) {
+		const x0 = layout.xOf(s);
+		const h = it.type === "location" ? layout.g.stripH : layout.g.barH;
+		svgEl("rect", { x: x0 + 0.5, y: top + 0.5, width: Math.max(3, layout.xOf(e + 1) - x0 - 1), height: h - 1, rx: 6, ...attrs }, g);
+	} else {
+		const cx = layout.xOf(s) + layout.pxPerDay / 2;
+		const r = 7;
+		svgEl("path", { d: `M${cx},${p.cy - r} L${cx + r},${p.cy} L${cx},${p.cy + r} L${cx - r},${p.cy} Z`, ...attrs }, g);
+	}
+	// A thin thread from the planned end to the real one shows the drift at a glance.
+	const px = isRangeType(it.type) ? layout.xOf(e + 1) : layout.xOf(e) + layout.pxPerDay / 2;
+	const nx = isRangeType(it.type) ? p.x1 : (p.x0 + p.x1) / 2;
+	if (Math.abs(nx - px) > 6) {
+		const y = isRangeType(it.type) ? top + (it.type === "location" ? layout.g.stripH : layout.g.barH) + 5 : p.cy + 12;
+		const late = nx > px;
+		svgEl("path", {
+			d: `M${px},${y - 3} V${y} H${nx} V${y - 3}`, fill: "none", stroke: late ? o.theme.deadline : o.theme.inkMuted,
+			"stroke-width": 1.25, opacity: 0.7, "pointer-events": "none", class: `sg-drift${late ? " is-late" : ""}`,
+		}, g);
+	}
 }
 
 /** Plan B ghosts, decision points, journal entries and check-in slots. */
@@ -700,6 +742,8 @@ export interface ExportOptions {
 	theme?: Theme;
 	includeToday?: boolean;
 	today?: number;
+	/** Draw the saved plan as dashed outlines (and add it to the legend). */
+	compare?: boolean;
 }
 
 export function renderExportSvg(project: Project, opts: ExportOptions = {}): SVGSVGElement {
@@ -715,11 +759,12 @@ export function renderExportSvg(project: Project, opts: ExportOptions = {}): SVG
 	const paint: PaintOptions = {
 		theme, measure, interactive: false,
 		today: opts.includeToday ? (opts.today ?? null) : null,
+		plan: opts.compare ? project.baseline : null,
 	};
 
 	// Title block
 	const titleH = 112;
-	const legend = buildLegend(project, theme, measure, totalW - margin * 2);
+	const legend = buildLegend(project, theme, measure, totalW - margin * 2, !!(opts.compare && project.baseline));
 	const chartTop = titleH;
 	const chartH = layout.headerH + layout.bodyH;
 	const totalH = chartTop + chartH + 28 + legend.height + margin;
@@ -776,7 +821,7 @@ function nest(parent: Element, child: SVGSVGElement, x: number, y: number) {
 	parent.appendChild(child);
 }
 
-function buildLegend(project: Project, theme: Theme, measure: Measure, maxW: number): { node: SVGGElement; height: number } {
+function buildLegend(project: Project, theme: Theme, measure: Measure, maxW: number, compare = false): { node: SVGGElement; height: number } {
 	const g = svgEl("g", {});
 	const entries: { draw: (g: SVGGElement, x: number, y: number) => void; label: string }[] = [];
 	for (const ph of project.phases)
@@ -808,6 +853,8 @@ function buildLegend(project: Project, theme: Theme, measure: Measure, maxW: num
 			svgEl("path", { d: `M${x},${y - 4} h5 V${y + 3} H${x + 17}`, fill: "none", stroke: theme.inkMuted, "stroke-width": 1.25 }, g);
 			svgEl("path", { d: `M${x + 12},${y - 0.5} L${x + 18},${y + 3} L${x + 12},${y + 6.5} Z`, fill: theme.inkMuted }, g);
 		} });
+	if (compare && project.baseline)
+		symbolEntries.push({ label: `Saved plan (${formatDay(toDay(project.baseline.saved))})`, draw: (g, x, y) => svgEl("rect", { x: x + 0.75, y: y - 5.5, width: 16.5, height: 11, rx: 3, fill: "none", stroke: theme.inkMuted, "stroke-width": 1.25, "stroke-dasharray": "3 3" }, g) });
 	if (project.items.some((i) => i.dropped))
 		symbolEntries.push({ label: "Dropped", draw: (g, x, y) => svgEl("rect", { x, y: y - 6, width: 18, height: 12, rx: 3, fill: theme.inkMuted, opacity: 0.42 }, g) });
 

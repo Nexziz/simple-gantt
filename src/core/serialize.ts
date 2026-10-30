@@ -1,6 +1,7 @@
 import { fromDay, isIsoDate, toDay } from "./dates";
 import { pruneLinks } from "./links";
 import { ALL_FEATURES } from "./features";
+import { formatInterval, parseInterval } from "./baseline";
 import {
 	CHECKIN_LABELS, COLOR_ORDER, CheckIn, ColorName, GanttItem, ITEM_TYPES, ItemType, JournalEntry, Mood, Phase, Project,
 	isCheckable, isRangeType, newId, slugify,
@@ -188,6 +189,16 @@ export function normalizeProject(raw: unknown, fallbackTitle = "Untitled project
 		const off = ALL_FEATURES.filter((f) => (r.off as unknown[]).includes(f));
 		if (off.length) project.off = off;
 	}
+	const bl = r.baseline && typeof r.baseline === "object" ? (r.baseline as Record<string, unknown>) : null;
+	const blItems = bl?.items && typeof bl.items === "object" ? (bl.items as Record<string, unknown>) : null;
+	if (bl && blItems) {
+		const items: Record<string, { start: string; end?: string }> = {};
+		for (const [id, v] of Object.entries(blItems)) {
+			const iv = parseInterval(v);
+			if (iv) items[id] = iv;
+		}
+		project.baseline = { saved: asDate(bl.saved) ?? today, items };
+	}
 	pruneLinks(project);
 	return project;
 }
@@ -235,6 +246,12 @@ export function toPlain(project: Project): Record<string, unknown> {
 	if (project.skippedCheckins?.length) out.skippedCheckins = [...project.skippedCheckins];
 	if (project.density) out.density = project.density;
 	if (project.off?.length) out.off = [...project.off];
+	if (project.baseline) {
+		const ids = new Set(project.items.map((i) => i.id));
+		const items: Record<string, string> = {};
+		for (const [id, v] of Object.entries(project.baseline.items)) if (ids.has(id)) items[id] = formatInterval(v);
+		out.baseline = { saved: project.baseline.saved, items };
+	}
 	if (project.journal?.length)
 		out.journal = [...project.journal]
 			.sort((a, b) => a.date.localeCompare(b.date))
