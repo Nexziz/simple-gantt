@@ -24,7 +24,7 @@ if (mode === "export") {
 	<div class="mock-app">
 		<div class="mock-ribbon">
 			<span>${icon("note", 18).outerHTML}</span><span>${icon("today", 18).outerHTML}</span>
-			<span class="is-active" title="Open Simple Gantt"><svg viewBox="0 0 100 100" width="18" height="18">${RIBBON_ICON_SVG}</svg></span>
+			<span class="is-active" title="Open timeline"><svg viewBox="0 0 100 100" width="18" height="18">${RIBBON_ICON_SVG}</svg></span>
 			<span>${icon("settings", 18).outerHTML}</span>
 		</div>
 		<div class="mock-main">

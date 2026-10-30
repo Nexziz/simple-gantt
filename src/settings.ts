@@ -43,7 +43,7 @@ export class SimpleGanttSettingTab extends PluginSettingTab {
 				heading: "Support",
 				items: [
 					{
-						name: "Enjoying Simple Gantt?",
+						name: "Enjoying this plugin?",
 						desc: "It's free and open source. If it helps your planning, you can say thanks with a coffee.",
 						aliases: ["donate", "coffee", "support"],
 						render: (setting) => this.coffeeButton(setting),
@@ -63,7 +63,7 @@ export class SimpleGanttSettingTab extends PluginSettingTab {
 
 	async setControlValue(key: string, value: unknown): Promise<void> {
 		if (key !== "folder" && key !== "exportFolder") return;
-		this.plugin.settings[key] = String(value ?? "").trim().replace(/^\/+|\/+$/g, "");
+		this.plugin.settings[key] = (typeof value === "string" ? value : "").trim().replace(/^\/+|\/+$/g, "");
 		await this.plugin.saveSettings();
 	}
 
@@ -95,7 +95,7 @@ export class SimpleGanttSettingTab extends PluginSettingTab {
 		new Setting(containerEl).setName("Support").setHeading();
 		this.coffeeButton(
 			new Setting(containerEl)
-				.setName("Enjoying Simple Gantt?")
+				.setName("Enjoying this plugin?")
 				.setDesc("It's free and open source. If it helps your planning, you can say thanks with a coffee."),
 		);
 	}

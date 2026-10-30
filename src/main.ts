@@ -16,7 +16,7 @@ export default class SimpleGanttPlugin extends Plugin {
 		addIcon(ICON_ID, RIBBON_ICON_SVG);
 		this.registerView(VIEW_TYPE, (leaf) => new GanttView(leaf, this));
 
-		this.addRibbonIcon(ICON_ID, "Open Simple Gantt", () => this.activateView());
+		this.addRibbonIcon(ICON_ID, "Open timeline", () => this.activateView());
 
 		this.addCommand({ id: "open", name: "Open timeline", callback: () => this.activateView() });
 		this.addCommand({

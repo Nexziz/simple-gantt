@@ -334,7 +334,7 @@ export function paintBody(layout: Layout, o: PaintOptions): SVGSVGElement {
 	if (detach) {
 		const [x, y] = detach;
 		const b = svgEl("g", { class: "sg-unlink", "data-action": "unlink" }, svg);
-		svgEl("title", {}, b).textContent = "Unlink (Delete)";
+		svgEl("title", {}, b).textContent = "Unlink";
 		svgEl("circle", { cx: x, cy: y, r: 10, fill: theme.surface, stroke: theme.accent, "stroke-width": 1.5 }, b);
 		svgEl("path", { d: `M${x - 3.5},${y - 3.5} L${x + 3.5},${y + 3.5} M${x + 3.5},${y - 3.5} L${x - 3.5},${y + 3.5}`, stroke: theme.accent, "stroke-width": 1.8, "stroke-linecap": "round" }, b);
 	}

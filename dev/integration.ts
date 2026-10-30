@@ -15,7 +15,7 @@ function check(cond: unknown, msg: string) {
 		const app = new App();
 		const plugin = new SimpleGanttPlugin(app as any, {} as any);
 		await plugin.onload();
-		check((window as any).ribbon?.title === "Open Simple Gantt", "ribbon button registered");
+		check((window as any).ribbon?.title === "Open timeline", "ribbon button registered");
 
 		// Opening with no projects shows the empty state
 		await (window as any).ribbon.cb();

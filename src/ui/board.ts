@@ -395,7 +395,7 @@ export class GanttBoard {
 			b.classList.toggle("is-active", on);
 			b.setAttribute("aria-pressed", String(on));
 		}
-		this.slack = p && this.on("links") ? computeSlack(p) : new Map();
+		this.slack = p && this.on("links") ? computeSlack(p) : new Map<string, Slack>();
 		if (!p) {
 			this.layout = null;
 			this.stats.replaceChildren();
@@ -630,7 +630,7 @@ export class GanttBoard {
 
 	/** Click on a link line: select it so it can be detached. */
 	private selectLink(key: string | null) {
-		this.selectedIds = new Set();
+		this.selectedIds = new Set<string>();
 		this.selectedLink = key;
 		if (this.panelMode === "item") this.closePanel();
 		this.render();
@@ -652,7 +652,7 @@ export class GanttBoard {
 	private pruneSelection() {
 		const p = this.project;
 		if (!p) {
-			this.selectedIds = new Set();
+			this.selectedIds = new Set<string>();
 			this.selectedLink = null;
 			return;
 		}
@@ -750,7 +750,7 @@ export class GanttBoard {
 		this.snapshot();
 		const ids = new Set(items.map((i) => i.id));
 		this.project.items = this.project.items.filter((i) => !ids.has(i.id));
-		this.selectedIds = new Set();
+		this.selectedIds = new Set<string>();
 		this.commit();
 		this.host.notify(`Deleted ${items.length} items. Press Ctrl+Z to undo.`);
 	}

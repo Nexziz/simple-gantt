@@ -64,8 +64,10 @@ function asDate(v: unknown): string | null {
 }
 
 function asText(v: unknown): string | undefined {
-	if (v === null || v === undefined) return undefined;
-	const s = String(v).trim();
+	const s = typeof v === "string" ? v.trim()
+		: typeof v === "number" || typeof v === "boolean" ? String(v)
+			: v instanceof Date && !isNaN(v.getTime()) ? v.toISOString().slice(0, 10)
+				: "";
 	return s || undefined;
 }
 
@@ -124,7 +126,7 @@ export function normalizeProject(raw: unknown, fallbackTitle = "Untitled project
 			item.phase = match ? match.id : phase;
 		}
 		if (type === "task" && o.progress !== undefined && o.progress !== null) {
-			const n = Math.round(Number(String(o.progress).replace("%", "")));
+			const n = Math.round(typeof o.progress === "number" ? o.progress : typeof o.progress === "string" ? Number(o.progress.replace("%", "")) : NaN);
 			if (!isNaN(n) && n > 0) item.progress = Math.min(100, n);
 		}
 		const note = asText(o.note);
