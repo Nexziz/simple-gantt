@@ -7,11 +7,9 @@
 
 <h1 align="center">Simple Gantt</h1>
 
-<p align="center">
-  <b>A calm, beautiful Gantt chart for Obsidian.</b><br>
-  Plan a project, or a whole dissertation year, on one timeline. Your plan stays a normal note,<br>
-  and one click gives you a print-ready chart for your report.
-</p>
+<p align="center"><b>A calm, beautiful Gantt chart for Obsidian.</b></p>
+
+<p align="center">Plan a project, or a whole dissertation year, on one timeline. Your plan stays a normal note, and one click gives you a print-ready chart for your report.</p>
 
 <p align="center">
   <a href="https://github.com/Nexziz/simple-gantt/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/Nexziz/simple-gantt?style=flat-square&color=7c5cff&label=release"></a>
@@ -19,6 +17,7 @@
   <img alt="Obsidian 1.7.2 or newer" src="https://img.shields.io/badge/Obsidian-1.7.2%2B-483699?style=flat-square&logo=obsidian&logoColor=white">
   <img alt="Works on mobile" src="https://img.shields.io/badge/mobile-yes-555?style=flat-square">
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/github/license/Nexziz/simple-gantt?style=flat-square&color=555"></a>
+  <a href="https://buymeacoffee.com/nexsiz"><img alt="Buy me a coffee" src="https://img.shields.io/badge/Buy%20me%20a%20coffee-FFDD00?style=flat-square&logo=buymeacoffee&logoColor=black"></a>
 </p>
 
 <p align="center">
@@ -27,25 +26,13 @@
   <a href="#quick-add">Quick add</a> ·
   <a href="#keyboard-and-mouse">Keyboard &amp; mouse</a> ·
   <a href="#where-your-data-lives">Your data</a> ·
-  <a href="#install">Install</a>
+  <a href="#install">Install</a> ·
+  <a href="#support">Support</a>
 </p>
 
-<table>
-  <tr>
-    <td width="33%" valign="top">
-      <h3>⚡ One line to add anything</h3>
-      Type <code>Interviews 3–28 May #data</code> and it lands in the right phase on the right dates. Deadlines, milestones, places and journal notes work the same way.
-    </td>
-    <td width="33%" valign="top">
-      <h3>🖐️ Drag, link, tick off</h3>
-      Move and resize bars, select several like on a Canvas, and link steps so a delay pushes what comes after. Ticking something off gets you confetti.
-    </td>
-    <td width="33%" valign="top">
-      <h3>📄 Just a note</h3>
-      Each timeline is a Markdown note with readable YAML. It syncs, works with git, and is still there if you ever uninstall the plugin. No accounts, no network.
-    </td>
-  </tr>
-</table>
+- ⚡ **One line to add anything.** Type `Interviews 3–28 May #data` and it lands in the right phase on the right dates. Deadlines, milestones, places and journal notes work the same way.
+- 🖐️ **Drag, link, tick off.** Move and resize bars, select several like on a Canvas, and link steps so a delay pushes what comes after. Ticking something off gets you confetti.
+- 📄 **Just a note.** Each timeline is a Markdown note with readable YAML. It syncs, works with git, and is still there if you ever uninstall the plugin. No accounts, no network.
 
 ## See it in action
 
@@ -94,16 +81,15 @@ Year, quarter or month, with smooth zooming. Fold a phase into one summary bar, 
 <details open>
 <summary><b>Plan</b></summary>
 
-- **Year overview first.** The board opens on the whole project with a today line. Zoom to **Quarter** or **Month**, or use Ctrl/Cmd + scroll.
-- **Five kinds of items**
+| Item | Used for |
+|---|---|
+| ▬ **Task** | Work over a period, grouped into colour-coded phases. Optional progress. |
+| ◆ **Milestone** | A moment you reach, e.g. "Chapter 2 drafted". |
+| ⚑ **Deadline** | A hard date: a red flag with a dashed rule through the whole chart. |
+| ● **Key date** | Meetings, reviews, conferences. |
+| ⌖ **Location** | Where you'll be: fieldwork, trips, retreats. |
 
-  | | Item | Used for |
-  |---|---|---|
-  | ▬ | **Task** | Work over a period, grouped into colour-coded phases. Optional progress. |
-  | ◆ | **Milestone** | A moment you reach, e.g. "Chapter 2 drafted". |
-  | ⚑ | **Deadline** | A hard date: a red flag with a dashed rule through the whole chart. |
-  | ● | **Key date** | Meetings, reviews, conferences. |
-  | ⌖ | **Location** | Where you'll be: fieldwork, trips, retreats. |
+- **Year overview first.** The board opens on the whole project with a today line. Zoom to **Quarter** or **Month**, or use Ctrl/Cmd + scroll.
 - **Quick add** understands dates, durations, phases, types and progress (see [Quick add](#quick-add)).
 - **Right-click an empty row** to add a task, milestone, deadline or place exactly there, with its name ready to type.
 - **Buffer time:** plan slack for the delays that always come (hatched bars, `~` in quick add).
@@ -156,13 +142,13 @@ Year, quarter or month, with smooth zooming. Fold a phase into one summary bar, 
 - Follows your Obsidian theme (light and dark), and works on mobile.
 </details>
 
-| Print export | Dark, quarter zoom | Journal |
-|---|---|---|
-| ![Export](docs/images/01-export-light.png) | ![Dark](docs/images/05-dark-quarter.png) | ![Journal](docs/images/13-journal.png) |
-
-| Plan B | Editing | Features on/off |
-|---|---|---|
-| ![Plan B](docs/images/12-plan-b.png) | ![Edit panel](docs/images/04-edit-panel.png) | ![Features](docs/images/19-features.png) |
+| Print export | Dark, quarter zoom |
+|---|---|
+| ![Export](docs/images/01-export-light.png) | ![Dark](docs/images/05-dark-quarter.png) |
+| **Journal** | **Plan B** |
+| ![Journal](docs/images/13-journal.png) | ![Plan B](docs/images/12-plan-b.png) |
+| **Editing** | **Features on/off** |
+| ![Edit panel](docs/images/04-edit-panel.png) | ![Features](docs/images/19-features.png) |
 
 ## Quick add
 
@@ -188,7 +174,7 @@ Type a title and a date; everything else is optional.
 
 ## Keyboard and mouse
 
-| | |
+| Gesture or key | What it does |
 |---|---|
 | **Drag** an empty row | Draw a task |
 | **Double-click** an empty row | Add a milestone or key date |
@@ -283,6 +269,14 @@ npm run gifs         # records the GIFs in docs/gifs and the hero images (needs 
 - `src/core/` holds the logic: dates, the quick-add parser, layout, links and slack, the saved plan, SVG rendering, and YAML (de)serialisation.
 - `src/ui/board.ts` is the interactive board.
 - `src/view.ts` and `src/main.ts` connect it all to Obsidian.
+
+## Support
+
+Simple Gantt is free and open source. If it helps you plan your dissertation or your project, you can say thanks with a coffee. It keeps the updates coming ☕
+
+<a href="https://buymeacoffee.com/nexsiz"><img src="docs/images/buy-me-a-coffee.png" alt="Buy me a coffee" height="52"></a>
+
+Bug reports and ideas are welcome too, in [Issues](https://github.com/Nexziz/simple-gantt/issues).
 
 ## License
 

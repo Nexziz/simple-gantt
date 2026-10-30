@@ -1,5 +1,6 @@
 import { App, PluginSettingTab, Setting, SettingDefinitionItem } from "obsidian";
 import type SimpleGanttPlugin from "./main";
+import { SUPPORT_URL } from "./support";
 
 export interface SimpleGanttSettings {
 	/** Folder where new projects are created. */
@@ -37,7 +38,23 @@ export class SimpleGanttSettingTab extends PluginSettingTab {
 				desc: "Where PNG and SVG exports are saved. Leave empty to save next to the timeline note.",
 				control: { type: "folder", key: "exportFolder", placeholder: "Next to the note", includeRoot: true },
 			},
+			{
+				type: "group",
+				heading: "Support",
+				items: [
+					{
+						name: "Enjoying Simple Gantt?",
+						desc: "It's free and open source. If it helps your planning, you can say thanks with a coffee.",
+						aliases: ["donate", "coffee", "support"],
+						render: (setting) => this.coffeeButton(setting),
+					},
+				],
+			},
 		];
+	}
+
+	private coffeeButton(setting: Setting) {
+		setting.addButton((b) => b.setButtonText("☕ Buy me a coffee").onClick(() => window.open(SUPPORT_URL)));
 	}
 
 	getControlValue(key: string): unknown {
@@ -74,5 +91,12 @@ export class SimpleGanttSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}),
 			);
+
+		new Setting(containerEl).setName("Support").setHeading();
+		this.coffeeButton(
+			new Setting(containerEl)
+				.setName("Enjoying Simple Gantt?")
+				.setDesc("It's free and open source. If it helps your planning, you can say thanks with a coffee."),
+		);
 	}
 }

@@ -16,6 +16,7 @@ import {
 } from "../core/types";
 import { confetti } from "./confetti";
 import { icon } from "./icons";
+import { SUPPORT_URL } from "../support";
 
 type PanelFocus = "title" | "review" | "planb" | null;
 
@@ -1693,6 +1694,11 @@ export class GanttBoard {
 				["Space", "tick off the selected item"],
 				["J · Ctrl+Z", "journal · undo"],
 			]);
+			h("a", {
+				cls: "sg-help-support",
+				kids: [span("☕"), span("Enjoying Simple Gantt? Buy me a coffee")],
+				attrs: { href: SUPPORT_URL, target: "_blank", rel: "noopener" },
+			}, menu);
 		});
 	}
 
