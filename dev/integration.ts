@@ -490,6 +490,13 @@ function check(cond: unknown, msg: string) {
 			pe("pointerup", bodyEl, rr.left + 1, rr.top + 40);
 		}
 		check(ruleHit && board["selectedId"] === ruleId && proj().items.find((i: any) => i.id === ruleId)?.type === "deadline", "clicking a deadline's line opens that deadline");
+		// A timeline note copied into the Gantt folder from outside Obsidian (never opened) still shows up.
+		const copied = "---\nsimple-gantt: true\n---\n\n```simple-gantt\ntitle: Copied in\nstart: 2026-11-10\nend: 2027-04-16\nphases: []\nitems: []\n```\n";
+		await app.vault.create("Gantt/Timeline B - dissertation only.md", copied);
+		check(plugin.listProjects().some((f: any) => f.path === "Gantt/Timeline B - dissertation only.md"), "a timeline note copied into the Gantt folder is listed without opening it");
+		board["openProjectMenu"]();
+		check([...document.querySelectorAll(".sg-menu .sg-menu-item")].some((b) => b.textContent?.includes("Timeline B - dissertation only")), "…and appears in the timeline switcher");
+		key("Escape");
 		log.push(`notices: ${JSON.stringify(notices)}`);
 		(window as any).__note = await app.vault.read(file);
 	} catch (e) {

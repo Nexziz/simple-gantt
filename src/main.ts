@@ -1,4 +1,4 @@
-import { Notice, Plugin, TFile, addIcon, normalizePath, parseYaml, stringifyYaml } from "obsidian";
+import { Notice, Plugin, TFile, TFolder, addIcon, normalizePath, parseYaml, stringifyYaml } from "obsidian";
 import { todayIso, toDay } from "./core/dates";
 import { renderExportSvg } from "./core/render";
 import { BLOCK_LANG, FRONTMATTER_KEY, extractBlock, noteTemplate, normalizeProject, toPlain } from "./core/serialize";
@@ -63,6 +63,14 @@ export default class SimpleGanttPlugin extends Plugin {
 		// Learn about timeline notes as they're opened, moved or deleted, instead of scanning the vault.
 		this.registerEvent(this.app.workspace.on("file-open", (file) => {
 			if (file && this.isProject(file)) this.rememberProject(file.path);
+		}));
+		// A timeline note that appears while Obsidian is open (synced, copied in, created elsewhere) is picked up
+		// as soon as Obsidian has read its frontmatter.
+		this.registerEvent(this.app.metadataCache.on("changed", (file) => {
+			if (this.isProject(file) && !this.settings.projects.includes(file.path)) {
+				this.settings.projects.push(file.path);
+				void this.saveSettings();
+			}
 		}));
 		this.registerEvent(this.app.vault.on("rename", (file, oldPath) => this.renameProject(oldPath, file.path)));
 		this.registerEvent(this.app.vault.on("delete", (file) => this.forgetProject(file.path)));
@@ -135,11 +143,27 @@ export default class SimpleGanttPlugin extends Plugin {
 		return file.extension === "md" && !!this.app.metadataCache.getFileCache(file)?.frontmatter?.[FRONTMATTER_KEY];
 	}
 
-	/** The timelines the plugin has seen, without scanning the vault. */
+	/**
+	 * The timelines: the ones the plugin has seen (most recent first), then any others in its own project folder,
+	 * e.g. notes copied in from outside Obsidian. Only that folder is looked at, never the whole vault.
+	 */
 	listProjects(): TFile[] {
-		return this.settings.projects
-			.map((p) => this.app.vault.getAbstractFileByPath(p))
-			.filter((f): f is TFile => f instanceof TFile && this.isProject(f));
+		const out: TFile[] = [];
+		const add = (f: unknown) => {
+			if (f instanceof TFile && !out.includes(f) && this.isProject(f)) out.push(f);
+		};
+		for (const p of this.settings.projects) add(this.app.vault.getAbstractFileByPath(p));
+		const folder = this.settings.folder ? this.app.vault.getFolderByPath(this.settings.folder) : null;
+		const found: TFile[] = [];
+		const walk = (dir: TFolder) => {
+			for (const child of dir.children) {
+				if (child instanceof TFolder) walk(child);
+				else if (child instanceof TFile) found.push(child);
+			}
+		};
+		if (folder) walk(folder);
+		found.sort((a, b) => a.basename.localeCompare(b.basename)).forEach(add);
+		return out;
 	}
 
 	/** Open the Gantt tab (re-using an existing one), optionally on a project note and with one item selected. */

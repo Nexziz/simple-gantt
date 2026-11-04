@@ -15,6 +15,10 @@ export class TFile {
 	get parent() { const i = this.path.lastIndexOf("/"); return { path: i > 0 ? this.path.slice(0, i) : "" }; }
 }
 
+export class TFolder {
+	constructor(public path: string, public children: (TFile | TFolder)[] = []) {}
+}
+
 class Events {
 	private handlers: Record<string, Cb[]> = {};
 	on(name: string, cb: Cb) { (this.handlers[name] ??= []).push(cb); return { name, cb }; }
@@ -27,6 +31,12 @@ export class Vault extends Events {
 	folders = new Set<string>();
 	getAbstractFileByPath(p: string) { return this.files.get(p) ?? (this.folders.has(p) ? { path: p } : null); }
 	getMarkdownFiles() { return [...this.files.values()].filter((f) => f.extension === "md"); }
+	getFolderByPath(p: string) {
+		if (!this.folders.has(p)) return null;
+		const files = [...this.files.values()].filter((f) => f.path.startsWith(`${p}/`) && !f.path.slice(p.length + 1).includes("/"));
+		const subs = [...this.folders].filter((d) => d.startsWith(`${p}/`) && !d.slice(p.length + 1).includes("/")).map((d) => this.getFolderByPath(d)!);
+		return new TFolder(p, [...files, ...subs]);
+	}
 	async read(f: TFile) { return this.data.get(f.path) as string; }
 	async cachedRead(f: TFile) { return this.data.get(f.path) as string; }
 	async create(p: string, s: string) { const f = new TFile(p); this.files.set(p, f); this.data.set(p, s); this.trigger("create", f); return f; }
@@ -37,8 +47,8 @@ export class Vault extends Events {
 	async createFolder(p: string) { this.folders.add(p); }
 }
 
-export class MetadataCache {
-	constructor(private vault: Vault) {}
+export class MetadataCache extends Events {
+	constructor(private vault: Vault) { super(); }
 	getFirstLinkpathDest(link: string) { return this.vault.files.get(`${link}.md`) ?? this.vault.files.get(link) ?? null; }
 	getFileCache(f: TFile) {
 		const s = this.vault.data.get(f.path);
