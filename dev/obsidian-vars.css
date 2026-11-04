@@ -81,3 +81,6 @@ html, body { height: 100%; }
 .mock-side button { font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--background-modifier-border); background: var(--background-primary); color: var(--text-normal); cursor: pointer; }
 .mock-side button.mod-cta { background: var(--interactive-accent); border-color: var(--interactive-accent); color: #fff; font-weight: 600; }
 .mock-side select { font: inherit; }
+/* A4 pages in the preview (?mode=print) */
+body:has(.print-page) { background: #8a8a8a; padding: 20px; display: flex; flex-direction: column; gap: 20px; align-items: center; }
+.print-page { flex-shrink: 0; box-shadow: 0 4px 18px rgba(0,0,0,.35); }

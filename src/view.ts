@@ -89,6 +89,14 @@ export class GanttView extends ItemView {
 		return this.file?.path ?? null;
 	}
 
+	openImport() {
+		this.board?.openImport();
+	}
+
+	exportPdf() {
+		return this.board?.exportPdf();
+	}
+
 	/** Select an item and scroll it into view (e.g. from the sidebar overview). */
 	focusItem(id: string) {
 		this.board?.focusItem(id);
@@ -177,7 +185,7 @@ export class GanttView extends ItemView {
 		return out.slice(0, 15);
 	}
 
-	private async exportFile(name: string, data: Blob | string) {
+	private async exportFile(name: string, data: Blob | string): Promise<string> {
 		const folder = this.plugin.settings.exportFolder || this.file?.parent?.path || "";
 		if (folder && !this.app.vault.getAbstractFileByPath(folder)) await this.app.vault.createFolder(folder);
 		const path = normalizePath(folder ? `${folder}/${name}` : name);
@@ -191,6 +199,7 @@ export class GanttView extends ItemView {
 			else await this.app.vault.createBinary(path, buf);
 		}
 		new Notice(`Exported to ${path}`);
+		return path;
 	}
 }
 

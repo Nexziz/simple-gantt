@@ -7,7 +7,10 @@ import { baselineSummary, driftOf, saveBaseline } from "../core/baseline";
 import { toCsv, toMarkdownTable } from "../core/table";
 import { Layout, Placed, computeLayout } from "../core/layout";
 import { ParseResult, parseQuickAdd } from "../core/parse";
-import { MOOD_COLORS, connectorX, makeMeasure, paintBody, paintHeader, paintLabels, renderExportSvg, svgEl, svgToPng, svgToString } from "../core/render";
+import { MOOD_COLORS, connectorX, makeMeasure, paintBody, paintHeader, paintLabels, renderExportSvg, svgEl, svgToImage, svgToPng, svgToString } from "../core/render";
+import { A4_LANDSCAPE, renderPrintPages } from "../core/print";
+import { jpegPdf } from "../core/pdf";
+import { FORMAT_LABELS, ImportPreview, applyImport, parseImport } from "../core/importer";
 import { TEMPLATES, TemplateId } from "../core/templates";
 import { Theme, themeFromCss } from "../core/theme";
 import {
@@ -34,7 +37,8 @@ export interface BoardHost {
 	listProjects(): { id: string; title: string }[];
 	switchProject(id: string): void;
 	createProject(template: TemplateId): void;
-	exportFile(filename: string, data: Blob | string): Promise<void>;
+	/** Save a file next to the timeline; resolves to its vault path when there is one. */
+	exportFile(filename: string, data: Blob | string): Promise<string | void>;
 	notify(message: string): void;
 	openNote?(link: string): void;
 	suggestNotes?(query: string): string[];
@@ -154,7 +158,9 @@ export class GanttBoard {
 	private undoStack: string[] = [];
 	private redoStack: string[] = [];
 	private drag: Drag | null = null;
-	private panelMode: "item" | "project" | "journal" | null = null;
+	private panelMode: "item" | "project" | "journal" | "import" | null = null;
+	/** What's in the import box, kept while the panel is closed and reopened. */
+	private importText = "";
 	private nudgeIndex = 0;
 	private dismissedNudges = new Set<string>();
 	private draft: JournalDraft | null = null;
@@ -315,6 +321,13 @@ export class GanttBoard {
 		h("kbd", { cls: "sg-kbd", kids: [icon("enter", 12)] }, field);
 		this.quickPreview = h("div", { cls: "sg-quick-preview" }, this.quick);
 		this.quickInput.addEventListener("input", () => this.syncQuick());
+		// Pasting several lines (a table, a list, a Mermaid chart) opens the import panel with them.
+		this.quickInput.addEventListener("paste", (e) => {
+			const pasted = e.clipboardData?.getData("text/plain") ?? "";
+			if (!pasted.trim().includes("\n") || !this.project) return;
+			e.preventDefault();
+			this.openImport(pasted);
+		});
 		this.quickInput.addEventListener("keydown", (e) => {
 			if (e.key === "Enter") {
 				e.preventDefault();
@@ -1028,6 +1041,125 @@ export class GanttBoard {
 		this.root.focus({ preventScroll: true });
 	}
 
+	// ─── Import ────────────────────────────────────────────────────────────
+
+	/** Open the import panel, optionally with text to import already in it. */
+	openImport(text?: string) {
+		if (!this.project) return;
+		if (text !== undefined) this.importText = text;
+		this.selectedId = null;
+		this.panelMode = "import";
+		this.refreshPanel();
+		this.panel.classList.add("is-open");
+		this.panel.setAttribute("aria-hidden", "false");
+		this.render();
+		window.setTimeout(() => this.panel.querySelector<HTMLTextAreaElement>(".sg-import-text")?.focus(), 80);
+	}
+
+	private buildImportPanel() {
+		const p = this.project;
+		const panel = this.panel;
+		panel.replaceChildren();
+		if (!p) return this.closePanel();
+		const head = h("div", { cls: "sg-panel-head" }, panel);
+		h("span", { cls: "sg-panel-type", kids: [icon("import", 14)] }, head);
+		h("h3", { text: "Import" }, head);
+		const close = h("button", { cls: "sg-btn sg-icon-btn", kids: [icon("x")], attrs: { "aria-label": "Close" } }, head);
+		close.addEventListener("click", () => this.closePanel());
+
+		const form = h("div", { cls: "sg-form" }, panel);
+		h("div", { cls: "sg-hint sg-hint-top", text: "Paste a table from Excel, Google Sheets or Numbers, a CSV or Markdown table, a Mermaid gantt chart, or one item per line, written like quick add." }, form);
+		const pick = h("div", { cls: "sg-import-pick" }, form);
+		const file = h("input", { cls: "sg-hidden", attrs: { type: "file", accept: ".csv,.tsv,.txt,.md,.markdown,.mmd" } }, pick);
+		const choose = h("button", { cls: "sg-btn", kids: [icon("note", 14), span("Choose a file…")] }, pick);
+		h("span", { cls: "sg-hint", text: "or paste below" }, pick);
+		const ta = h("textarea", {
+			cls: "sg-input sg-import-text",
+			attrs: { rows: "9", spellcheck: "false", "aria-label": "Text to import", placeholder: "Task, Phase, Start, End\nLiterature review, Reading, 02/11/2026, 15/12/2026\nEthics form due, Reading, 20/12/2026," },
+		}, form);
+		ta.value = this.importText;
+		const preview = h("div", { cls: "sg-import-preview" }, form);
+		const foot = h("div", { cls: "sg-panel-foot" }, panel);
+		const clear = h("button", { cls: "sg-btn", text: "Clear" }, foot);
+		h("div", { cls: "sg-spacer" }, foot);
+		const add = h("button", { cls: "sg-btn sg-primary", text: "Add" }, foot);
+
+		let result: ImportPreview | null = null;
+		const update = () => {
+			this.importText = ta.value;
+			result = parseImport(ta.value, p, this.host.today());
+			preview.replaceChildren();
+			const n = result?.items.length ?? 0;
+			add.disabled = !n;
+			add.textContent = n ? `Add ${n} item${n === 1 ? "" : "s"}` : "Add";
+			if (!ta.value.trim()) return;
+			if (!result || !n) {
+				h("div", { cls: "sg-import-empty", text: "Nothing to import yet: each row needs a title and a date." }, preview);
+				return;
+			}
+			const sum = h("div", { cls: "sg-import-sum" }, preview);
+			h("span", { cls: "sg-import-format", text: FORMAT_LABELS[result.format] }, sum);
+			const phases = result.newPhases.length ? ` · new phase${result.newPhases.length === 1 ? "" : "s"}: ${result.newPhases.map((ph) => ph.name).join(", ")}` : "";
+			h("span", { cls: "sg-import-count", text: `${n} item${n === 1 ? "" : "s"}${phases}` }, sum);
+			const list = h("div", { cls: "sg-import-list" }, preview);
+			const phaseOf = (id?: string) => p.phases.find((ph) => ph.id === id) ?? result?.newPhases.find((ph) => ph.id === id);
+			for (const it of result.items.slice(0, 12)) {
+				const ph = phaseOf(it.phase);
+				const s = toDay(it.start), e = toDay(it.end ?? it.start);
+				const mark = h("span", { cls: "sg-import-mark", kids: [icon(it.type, 12)] });
+				mark.setCssProps({ "--sg-dot": ph ? this.theme.palette[ph.color] : "var(--text-faint)" });
+				h("div", {
+					cls: "sg-import-row",
+					kids: [
+						mark,
+						h("span", { cls: "sg-import-title", text: `${it.done ? "✓ " : ""}${it.title}` }),
+						h("span", { cls: "sg-import-when", text: isRangeType(it.type) ? formatRange(s, e) : formatDay(s, false) }),
+					],
+					attrs: { title: [ITEM_TYPE_LABELS[it.type], ph?.name, it.after?.length ? "linked" : ""].filter(Boolean).join(" · ") },
+				}, list);
+			}
+			if (n > 12) h("div", { cls: "sg-hint", text: `…and ${n - 12} more` }, list);
+			if (result.skipped.length) {
+				const det = h("details", { cls: "sg-import-skipped" }, preview);
+				h("summary", { text: `${result.skipped.length} row${result.skipped.length === 1 ? "" : "s"} skipped` }, det);
+				for (const r of result.skipped.slice(0, 20)) h("div", { text: r }, det);
+			}
+		};
+		let frame = 0;
+		ta.addEventListener("input", () => {
+			window.cancelAnimationFrame(frame);
+			frame = window.requestAnimationFrame(update);
+		});
+		choose.addEventListener("click", () => file.click());
+		file.addEventListener("change", () => {
+			const f = file.files?.[0];
+			if (!f) return;
+			void f.text().then((t) => {
+				ta.value = t;
+				update();
+			});
+		});
+		clear.addEventListener("click", () => {
+			ta.value = "";
+			update();
+			ta.focus();
+		});
+		add.addEventListener("click", () => {
+			if (!result?.items.length || !this.project) return;
+			this.snapshot();
+			const { widened } = applyImport(this.project, result);
+			const ids = result.items.map((i) => i.id);
+			const phases = result.newPhases.length;
+			this.importText = "";
+			this.closePanel();
+			this.selectedIds = new Set(ids);
+			this.commit();
+			this.revealItem(ids[0]);
+			this.host.notify(`Imported ${ids.length} item${ids.length === 1 ? "" : "s"}${phases ? ` and ${phases} phase${phases === 1 ? "" : "s"}` : ""}${widened ? ", and widened the timeline to fit" : ""}. They're selected, so you can move them together. Ctrl+Z to undo.`);
+		});
+		update();
+	}
+
 	// ─── Critical path & saved plan ────────────────────────────────────────
 
 	/**
@@ -1288,6 +1420,8 @@ export class GanttBoard {
 			if (!itemEl && this.tool === "hand") {
 				// Like Canvas: drag empty space to move around. Touch screens scroll natively.
 				if (e.pointerType !== "touch") this.startPan(e);
+				// A click (no drag) on a deadline's rule opens that deadline.
+				if (this.drag?.kind === "pan") this.drag.targetId = target.closest(".sg-deadline-hit")?.getAttribute("data-id") ?? null;
 				return;
 			}
 			if (target.getAttribute("data-lane") === "journal") return;
@@ -1423,8 +1557,9 @@ export class GanttBoard {
 			if (!this.project || !this.layout) return;
 			if (d.kind === "pan") {
 				this.root.classList.remove("is-panning");
-				// A plain click on empty space clears the selection.
-				if (!d.moved && (this.selectedIds.size || this.selectedLink)) this.select(null);
+				// A plain click on empty space clears the selection; on a deadline's rule it opens the deadline.
+				if (!d.moved && d.targetId) this.showItem(d.targetId);
+				else if (!d.moved && (this.selectedIds.size || this.selectedLink)) this.select(null);
 				return;
 			}
 			if (d.kind === "marquee") {
@@ -1520,6 +1655,18 @@ export class GanttBoard {
 		const id = itemEl?.getAttribute("data-id") ?? null;
 		this.bodyWrap.querySelectorAll(".sg-link.is-hot").forEach((l) => l.classList.remove("is-hot"));
 		if (id) this.bodyWrap.querySelectorAll(".sg-link").forEach((l) => l.getAttribute("data-link")?.split(" ").includes(id) && l.classList.add("is-hot"));
+		const rule = itemEl ? null : (e.target as Element).closest(".sg-deadline-hit");
+		this.bodyWrap.querySelectorAll(".sg-deadline-rule.is-hot").forEach((r) => r.classList.remove("is-hot"));
+		const deadline = rule ? this.findItem(rule.getAttribute("data-id") ?? "") : undefined;
+		if (rule && deadline) {
+			this.bodyWrap.querySelector(`.sg-deadline-rule[data-id="${CSS.escape(deadline.id)}"]`)?.classList.add("is-hot");
+			const days = toDay(deadline.start) - toDay(this.host.today());
+			return this.showTooltip(e, [
+				h("b", { kids: [icon("deadline", 12), ` ${deadline.title}`] }),
+				span(`Deadline · ${formatDay(toDay(deadline.start))}`),
+				span(isDone(deadline) ? "Done" : days > 0 ? `In ${formatDuration(days)}` : days === 0 ? "Today" : `${formatDuration(-days)} ago`, "sg-tt-hint"),
+			]);
+		}
 		const linkEl = itemEl ? null : (e.target as Element).closest(".sg-link");
 		if (linkEl) {
 			linkEl.classList.add("is-hot");
@@ -1735,6 +1882,7 @@ export class GanttBoard {
 				["D, then drag", "across a row to draw a task"],
 				["Double-click", "a row for a milestone or key date"],
 				["Right-click", "a row to add something right there"],
+				["Paste lines", "into the bar above to import a table, list or Mermaid chart"],
 				["+", "on a row's label to add to that row"],
 				["! * + @ ~ >", "deadline · milestone · key date · place · buffer · journal"],
 			]);
@@ -1939,6 +2087,7 @@ export class GanttBoard {
 		if (this.panelMode === "item") this.buildItemPanel(focus);
 		else if (this.panelMode === "project") this.buildProjectPanel();
 		else if (this.panelMode === "journal") this.buildJournalPanel();
+		else if (this.panelMode === "import") this.buildImportPanel();
 	}
 
 	/** Run a mutation from a panel field. One undo step per field focus. */
@@ -2960,8 +3109,9 @@ export class GanttBoard {
 
 	private openExportMenu(anchor: El) {
 		this.popMenu(anchor, (menu) => {
-			h("div", { cls: "sg-menu-label", text: "Export for print & reports" }, menu);
+			h("div", { cls: "sg-menu-label", text: "Print & share" }, menu);
 			const label = (main: string, note: string) => h("span", { kids: [`${main} `, h("small", { text: note })] });
+			this.menuItem(menu, [icon("print", 14), label("PDF for printing", "A4 landscape")], () => void this.exportPdf(), "is-primary");
 			this.menuItem(menu, [icon("download", 14), label("PNG image", "high resolution")], () => void this.exportAs("png"));
 			this.menuItem(menu, [icon("download", 14), label("SVG", "vector, for Word / LaTeX")], () => void this.exportAs("svg"));
 			if (this.comparePlan) h("div", { cls: "sg-menu-hint", text: "Includes the saved plan, as shown." }, menu);
@@ -2969,7 +3119,34 @@ export class GanttBoard {
 			h("div", { cls: "sg-menu-label", text: "As a table" }, menu);
 			this.menuItem(menu, [icon("copy", 14), label("Copy as Markdown table", "paste into a note")], () => void this.copyTable());
 			this.menuItem(menu, [icon("download", 14), label("CSV", "Excel, Sheets, Numbers")], () => void this.exportTable());
+			h("div", { cls: "sg-menu-sep" }, menu);
+			h("div", { cls: "sg-menu-label", text: "Bring a plan in" }, menu);
+			this.menuItem(menu, [icon("import", 14), label("Import…", "Excel, CSV, Markdown, Mermaid")], () => this.openImport());
 		});
+	}
+
+	/**
+	 * A print-ready PDF: A4 landscape pages (more than one when the plan is long), saved next to the note and
+	 * opened, ready to print from any PDF viewer at 100%.
+	 */
+	async exportPdf() {
+		if (!this.project) return;
+		const project = this.project;
+		try {
+			const pages = renderPrintPages(project, { today: toDay(this.host.today()), compare: this.comparePlan });
+			const scale = 3; // ≈ 290 dpi on paper
+			const images = [];
+			for (const svg of pages) {
+				const jpeg = new Uint8Array(await (await svgToImage(svg, scale, "image/jpeg", 0.92)).arrayBuffer());
+				images.push({ jpeg, width: Math.round(A4_LANDSCAPE.width * scale), height: Math.round(A4_LANDSCAPE.height * scale) });
+			}
+			const pdf = jpegPdf(images, A4_LANDSCAPE.widthPt, A4_LANDSCAPE.heightPt, project.title);
+			const path = await this.host.exportFile(`${this.exportBase()}.pdf`, new Blob([pdf], { type: "application/pdf" }));
+			if (pages.length > 1) this.host.notify(`The plan didn't fit on one sheet, so it's on ${pages.length} A4 pages.`);
+			if (path) this.host.openNote?.(path);
+		} catch (err) {
+			this.host.notify(`PDF export failed: ${(err as Error).message}`);
+		}
 	}
 
 	private openColorMenu(anchor: El, current: ColorName, onPick: (c: ColorName) => void) {

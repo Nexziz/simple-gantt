@@ -302,6 +302,37 @@ const scenes = {
 		await d.move(c1.cx, c1.cy, 800);
 		await d.wait(2200);
 	},
+	async import(d) {
+		await d.caption("Import a plan: Excel, CSV, Markdown tables or a Mermaid chart");
+		const exp = d.page.locator(".sg-toolbar .sg-btn", { hasText: "Export" });
+		const eb = await exp.boundingBox();
+		await d.move(eb.x + eb.width / 2, eb.y + eb.height / 2, 600);
+		await d.page.mouse.down();
+		await d.page.mouse.up();
+		await d.wait(700);
+		const imp = d.page.locator(".sg-menu .sg-menu-item", { hasText: "Import" });
+		const ib = await imp.boundingBox();
+		await d.move(ib.x + 60, ib.y + ib.height / 2, 500);
+		await d.wait(300);
+		await imp.click();
+		await d.wait(700);
+		await d.caption("Paste it in: the format is detected and previewed");
+		await d.key("Control+v", ["Ctrl", "V"]);
+		await d.page.locator(".sg-import-text").fill([
+			"```mermaid",
+			"gantt",
+			"  dateFormat YYYY-MM-DD",
+			"  section Teaching",
+			"  Seminar series   :t1, 2026-10-05, 2026-12-11",
+			"  Marking          :after t1, 3w",
+			"  Teaching review  :milestone, 2027-01-15, 0d",
+			"```",
+		].join("\n"));
+		await d.wait(1800);
+		await d.caption("Add them, and they arrive selected, ready to move", 64);
+		await d.click(".sg-panel-foot .sg-primary");
+		await d.wait(2600);
+	},
 	async "menu-rename"(d) {
 		await d.caption("Right-click anything for its menu");
 		const c3 = await d.box('.sg-item[data-id="c3"] rect.sg-mark');

@@ -1327,3 +1327,41 @@
 .sg-overview .sg-ov-tip { margin-top: auto; padding-top: 6px; font-size: 11.5px; color: var(--text-faint); }
 .sg-overview .sg-ov-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 24px 8px; text-align: center; color: var(--text-muted); }
 .sg-overview .sg-ov-empty button { width: 100%; }
+
+/* ── Import ──────────────────────────────────────────────────────── */
+.sg-root .sg-import-pick { display: flex; align-items: center; gap: 10px; }
+.sg-root .sg-import-pick .sg-hint { margin: 0; }
+.sg-root .sg-import-text {
+	width: 100%;
+	min-height: 150px;
+	resize: vertical;
+	font-family: var(--font-monospace);
+	font-size: 12px;
+	line-height: 1.5;
+	white-space: pre;
+}
+.sg-root .sg-import-preview { display: flex; flex-direction: column; gap: 8px; }
+.sg-root .sg-import-empty { font-size: 12.5px; color: var(--text-muted); }
+.sg-root .sg-import-sum { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-normal); }
+.sg-root .sg-import-format {
+	padding: 2px 8px;
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--interactive-accent) 14%, transparent);
+	color: var(--interactive-accent);
+	font-size: 11.5px;
+	font-weight: 600;
+}
+.sg-root .sg-import-list { display: flex; flex-direction: column; gap: 2px; padding: 6px; border: 1px solid var(--background-modifier-border); border-radius: 10px; }
+.sg-root .sg-import-row { display: flex; align-items: center; gap: 8px; padding: 3px 4px; font-size: 12.5px; }
+.sg-root .sg-import-mark { flex: none; display: grid; place-items: center; width: 14px; color: var(--sg-dot); }
+.sg-root .sg-import-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-normal); }
+.sg-root .sg-import-when { flex: none; color: var(--text-muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.sg-root .sg-import-skipped { font-size: 12px; color: var(--text-muted); }
+.sg-root .sg-import-skipped summary { cursor: pointer; }
+.sg-root .sg-import-skipped div { padding: 2px 0 0 14px; }
+.sg-menu-item.is-primary { font-weight: 600; }
+.sg-menu-item.is-primary .sg-icon { color: var(--interactive-accent); }
+.sg-btn.sg-primary:disabled { opacity: 0.5; cursor: default; }
+.sg-body .sg-deadline-hit { cursor: pointer; }
+.sg-body .sg-deadline-rule { transition: opacity 0.15s, stroke-width 0.15s; }
+.sg-body .sg-deadline-rule.is-hot { opacity: 1; stroke-width: 2px; stroke-dasharray: none; }

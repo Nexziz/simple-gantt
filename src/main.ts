@@ -23,6 +23,8 @@ export default class SimpleGanttPlugin extends Plugin {
 
 		this.addCommand({ id: "open", name: "Open timeline", callback: () => this.activateView() });
 		this.addCommand({ id: "show-overview", name: "Show overview in the sidebar", callback: () => void this.showOverview("left") });
+		this.addCommand({ id: "import", name: "Import into the open timeline", callback: () => void this.withBoard((v) => v.openImport()) });
+		this.addCommand({ id: "print-pdf", name: "Save a PDF for printing", callback: () => void this.withBoard((v) => v.exportPdf()) });
 		this.addCommand({
 			id: "new-dissertation",
 			name: "New dissertation timeline",
@@ -73,6 +75,13 @@ export default class SimpleGanttPlugin extends Plugin {
 			this.ribbonEl.remove();
 			this.ribbonEl = null;
 		}
+	}
+
+	/** Open the timeline, then do something with it. */
+	private async withBoard(fn: (view: GanttView) => unknown) {
+		await this.activateView();
+		const view = this.app.workspace.getLeavesOfType(VIEW_TYPE)[0]?.view;
+		if (view instanceof GanttView) await fn(view);
 	}
 
 	/** Open (or reveal) the overview panel in a sidebar. Its tab icon can then be dragged to any tab group. */

@@ -1,6 +1,7 @@
 import "./obsidian-dom";
 import { DARK_THEME, PRINT_THEME } from "../src/core/theme";
 import { renderExportSvg } from "../src/core/render";
+import { renderPrintPages } from "../src/core/print";
 import { toDay } from "../src/core/dates";
 import { createFromTemplate } from "../src/core/templates";
 import { cloneProject, type Project } from "../src/core/types";
@@ -16,7 +17,21 @@ const dark = params.get("theme") === "dark";
 const TODAY = "2026-10-26";
 document.body.classList.add(dark ? "theme-dark" : "theme-light");
 
-if (mode === "export") {
+if (mode === "print") {
+	// The A4 landscape pages, one under the other (?mode=print&big=1 makes the plan long enough for two pages).
+	const project = cloneProject(SAMPLE);
+	if (params.get("big")) {
+		for (const ph of ["Teaching", "Conference papers", "Side project"]) {
+			const id = ph.toLowerCase().replace(/\W+/g, "-");
+			project.phases.push({ id, name: ph, color: "violet" });
+			for (let i = 0; i < 6; i++) project.items.push({ id: `${id}${i}`, type: "task", title: `${ph} part ${i + 1}`, phase: id, start: `2026-${String(9 + (i % 4)).padStart(2, "0")}-0${1 + i}`, end: `2027-0${1 + (i % 6)}-1${i}` });
+		}
+	}
+	for (const svg of renderPrintPages(project, { today: toDay(TODAY), compare: params.has("compare") })) {
+		svg.classList.add("print-page");
+		document.body.appendChild(svg);
+	}
+} else if (mode === "export") {
 	const svg = renderExportSvg(SAMPLE, { theme: dark ? DARK_THEME : PRINT_THEME, includeToday: true, today: toDay(TODAY), compare: params.has("compare") });
 	svg.id = "shot";
 	document.body.appendChild(svg);

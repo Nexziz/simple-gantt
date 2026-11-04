@@ -21,6 +21,10 @@ await page.waitForFunction(() => window.__ready === true, null, { timeout: 30000
 const log = await page.evaluate(() => window.__log);
 console.log(log.join("\n"));
 if (process.env.SHOW_NOTE) console.log("\n" + (await page.evaluate(() => window.__note)));
+if (process.env.SAVE_PDF) {
+	const b64 = await page.evaluate(() => window.__pdf);
+	if (b64) (await import("fs")).writeFileSync(process.env.SAVE_PDF, Buffer.from(b64, "base64"));
+}
 if (process.argv[2]) await page.screenshot({ path: process.argv[2] });
 const failed = await page.evaluate(() => window.__failed);
 await browser.close();

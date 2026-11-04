@@ -1,4 +1,4 @@
-import { formatMonthSpan, monthEnd, monthStart, toDay } from "./dates";
+import { formatDay, formatMonthSpan, monthEnd, monthStart, toDay } from "./dates";
 import { SlotState, slotStates } from "./journal";
 import { Feature, isOn } from "./features";
 import { ColorName, GanttItem, Mood, Phase, Project, isDone } from "./types";
@@ -20,7 +20,7 @@ export const G = {
 };
 
 export type Geometry = typeof G;
-export type Density = "comfortable" | "compact";
+export type Density = "comfortable" | "compact" | "print";
 
 export const COMPACT: Geometry = {
 	yearRowH: 22,
@@ -37,11 +37,27 @@ export const COMPACT: Geometry = {
 	fontSize: 12,
 };
 
+/** For A4 paper: tight rows, text around 8.5 pt. */
+export const PRINT_GEOMETRY: Geometry = {
+	yearRowH: 20,
+	monthRowH: 24,
+	weekRowH: 18,
+	rowPitch: 23,
+	barH: 17,
+	stripPitch: 20,
+	stripH: 16,
+	lanePad: 6,
+	minLaneH: 34,
+	labelGap: 6,
+	packGap: 8,
+	fontSize: 11.5,
+};
+
 /** Horizontal padding inside a milestone's label badge. */
 export const MILESTONE_BADGE_PAD = 9;
 
 export function geometry(density?: Density): Geometry {
-	return density === "compact" ? COMPACT : G;
+	return density === "compact" ? COMPACT : density === "print" ? PRINT_GEOMETRY : G;
 }
 
 export type LaneKind = "locations" | "keydates" | "journal" | "phase" | "unassigned";
@@ -139,6 +155,10 @@ export interface LayoutOptions {
 	today?: number;
 	density?: Density;
 	measure: (text: string, weight?: number, size?: number) => number;
+	/** Add the date to milestone, deadline and key date labels (print): "Chapter 2 drafted · 15 Jan". */
+	datedLabels?: boolean;
+	/** Leave out phases with nothing in them (print and exports). */
+	hideEmptyPhases?: boolean;
 }
 
 export type Measure = LayoutOptions["measure"];
@@ -240,6 +260,7 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 	const inPhase = (i: GanttItem) => i.type === "task" || i.type === "milestone";
 	for (const phase of project.phases) {
 		const items = project.items.filter((i) => inPhase(i) && i.phase === phase.id);
+		if (opts.hideEmptyPhases && !items.length && !ghosts.some((g) => g.item.phase === phase.id)) continue;
 		if (phase.collapsed) {
 			groups.push({ kind: "phase", key: phase.id, phase, items, collapsed: true, marks: summaryMarks(phase, items, on("progress")) });
 			continue;
@@ -280,7 +301,8 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 			const item = mark.item;
 			const [s, e] = itemDays(item);
 			const done = mark.kind === "item" && isDone(item);
-			const label = journal || (flat && mark.kind !== "summary") ? "" : (done ? "✓ " : "") + (item.title || "Untitled");
+			const dated = opts.datedLabels && mark.kind === "item" && (item.type === "milestone" || item.type === "deadline" || item.type === "event");
+			const label = journal || (flat && mark.kind !== "summary") ? "" : (done ? "✓ " : "") + (item.title || "Untitled") + (dated ? ` · ${formatDay(s, false)}` : "");
 			const badge = item.type === "milestone" && !!label;
 			const weight = item.type === "deadline" || item.type === "location" || badge ? 600 : 500;
 			// Milestone labels sit in a tinted badge: reserve its padding.

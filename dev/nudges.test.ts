@@ -7,6 +7,7 @@ import { addLink, computeSlack, enforceLinks, linkConflicts } from "../src/core/
 import { baselineSummary, driftOf, saveBaseline } from "../src/core/baseline";
 import { toCsv, toMarkdownTable } from "../src/core/table";
 import { agenda } from "../src/core/agenda";
+import { applyImport, parseImport } from "../src/core/importer";
 import { isOn, setFeature } from "../src/core/features";
 import { computeLayout } from "../src/core/layout";
 import { createFromTemplate } from "../src/core/templates";
@@ -224,6 +225,98 @@ t("agenda: what's on now, coming up and overdue, for the sidebar", () => {
 	assert.deepEqual(a.soon.map((s) => s.item.id), ["b2"], "starts within four weeks");
 	assert.deepEqual(a.late.map((s) => s.item.id), ["a0"], "a milestone that passed without being ticked off");
 	assert.ok(!a.now.some((i) => i.id === "a1"), "finished work never shows");
+});
+
+t("import: a table pasted from Excel or Sheets (tabs, day-first dates, row-number predecessors)", () => {
+	const p = cloneProject(SAMPLE);
+	const text = [
+		"Task\tPhase\tStart\tEnd\tDuration\t% Complete\tPredecessors",
+		"Literature review\tReading\t02/11/2026\t15/12/2026\t\t40%\t",
+		"Ethics submission\tReading\t20/12/2026\t\t\t\t1",
+		"Pilot study\tMethodology & ethics\t10/01/2027\t\t3 weeks\t0.5\t2",
+		"Write up\t\t\t\t\t\t",
+	].join("\n");
+	const r = parseImport(text, p, "2026-11-04")!;
+	assert.equal(r.format, "table");
+	assert.equal(r.items.length, 3);
+	const [lit, ethics, pilot] = r.items;
+	assert.deepEqual([lit.type, lit.start, lit.end, lit.progress], ["task", "2026-11-02", "2026-12-15", 40]);
+	assert.equal(ethics.type, "deadline", "a single date called a submission is a deadline");
+	assert.deepEqual(ethics.after, [lit.id], "predecessor by row number");
+	assert.deepEqual([pilot.start, pilot.end, pilot.progress, pilot.phase], ["2027-01-10", "2027-01-30", 50, "methodology"]);
+	assert.deepEqual(r.newPhases.map((ph) => ph.name), ["Reading"], "an existing phase is reused, a new one created");
+	assert.equal(r.skipped.length, 1);
+	applyImport(p, r);
+	assert.ok(p.phases.some((ph) => ph.name === "Reading") && p.items.some((i) => i.title === "Pilot study"));
+});
+
+t("import: CSV with quotes and month-first dates", () => {
+	const text = 'Name,Start Date,Due Date,Status\n"Draft, chapter 2",01/15/2027,02/28/2027,Done\nSubmit thesis,08/27/2027,,\n';
+	const r = parseImport(text, cloneProject(SAMPLE), "2026-11-04")!;
+	assert.equal(r.format, "table");
+	assert.deepEqual(r.items.map((i) => [i.title, i.type, i.start, i.end ?? null]), [
+		["Draft, chapter 2", "task", "2027-01-15", "2027-02-28"],
+		["Submit thesis", "deadline", "2027-08-27", null],
+	]);
+	assert.ok(r.items[0].done && r.items[0].progress === 100);
+});
+
+t("import: our own Markdown table comes back in, phases, types and links included", () => {
+	const blank = { title: "x", start: "2026-09-01", end: "2027-08-31", phases: [], items: [] };
+	const r = parseImport(toMarkdownTable(SAMPLE), blank, "2026-11-04")!;
+	assert.equal(r.format, "markdown");
+	assert.equal(r.items.length, SAMPLE.items.length);
+	assert.deepEqual(r.newPhases.map((ph) => ph.name), SAMPLE.phases.map((ph) => ph.name));
+	const byTitle = (t: string) => r.items.find((i) => i.title === t)!;
+	assert.equal(byTitle("Proofread").after?.[0], byTitle("Revisions").id);
+	assert.equal(byTitle("Submission").type, "deadline");
+	assert.equal(byTitle("Fieldwork · Lisbon").type, "location");
+	assert.ok(byTitle("Buffer").buffer);
+	assert.ok(byTitle("Scoping & reading list").done);
+	assert.equal(byTitle("Systematic literature review").progress, 40);
+});
+
+t("import: a Mermaid gantt chart from a note", () => {
+	const text = [
+		"```mermaid",
+		"gantt",
+		"    title Thesis",
+		"    dateFormat YYYY-MM-DD",
+		"    section Research",
+		"    Literature review :done, lit, 2026-11-01, 30d",
+		"    Survey design     :sd, after lit, 2w",
+		"    section Writing",
+		"    Draft chapters    :2027-01-04, 2027-03-26",
+		"    Final draft       :milestone, fd, 2027-04-01, 0d",
+		"    Submission        :milestone, 2027-05-15, 0d",
+		"```",
+	].join("\n");
+	const r = parseImport(text, cloneProject(SAMPLE), "2026-11-04")!;
+	assert.equal(r.format, "mermaid");
+	const [lit, survey, draft, final, sub] = r.items;
+	assert.deepEqual([lit.start, lit.end, lit.done], ["2026-11-01", "2026-11-30", true]);
+	assert.deepEqual([survey.start, survey.end, survey.after], ["2026-12-01", "2026-12-14", [lit.id]]);
+	assert.deepEqual([draft.start, draft.end], ["2027-01-04", "2027-03-26"]);
+	assert.deepEqual([final.type, final.start], ["milestone", "2027-04-01"]);
+	assert.equal(sub.type, "deadline");
+	assert.deepEqual(r.newPhases.map((ph) => ph.name), ["Research"], "“Writing” already exists in the sample");
+});
+
+t("import: a list in quick-add style, headings as phases, checkboxes as done", () => {
+	const text = "## Fieldwork\n- [x] Pilot interviews 3–14 May\n- Main interviews 1 Jun – 31 Jul 30%\n- !Data freeze 15 Aug\nJust a note without a date\n";
+	const r = parseImport(text, cloneProject(SAMPLE), "2026-11-04")!;
+	assert.equal(r.format, "list");
+	assert.deepEqual(r.items.map((i) => i.title), ["Pilot interviews", "Main interviews", "Data freeze"]);
+	assert.ok(r.items[0].done && r.items[1].progress === 30 && r.items[2].type === "deadline");
+	assert.equal(r.items[0].start, "2027-05-03");
+	assert.equal(r.skipped.length, 1);
+});
+
+t("import: dates before the project start widen its period", () => {
+	const p = cloneProject(SAMPLE);
+	const r = parseImport("Task,Start,End\nPreparation,2026-06-01,2026-07-15\n", p, "2026-11-04")!;
+	assert.ok(applyImport(p, r).widened);
+	assert.equal(p.start, "2026-06-01");
 });
 
 console.log(failed ? `\n${failed} failed` : `\nall nudge/journal/link/feature tests passed`);

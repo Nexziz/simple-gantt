@@ -439,6 +439,57 @@ function check(cond: unknown, msg: string) {
 		check(!(window as any).ribbon, "the ribbon button can be switched off");
 		plugin.setRibbon(true);
 		check((window as any).ribbon?.title === "Open timeline", "…and back on");
+		// ── Import, and the A4 PDF ──
+		key("Escape");
+		key("Escape");
+		const menuBtn = [...document.querySelectorAll(".sg-toolbar .sg-btn")].find((b) => b.textContent?.includes("Export")) as HTMLButtonElement;
+		menuBtn.click();
+		const exportItems = [...document.querySelectorAll(".sg-menu .sg-menu-item")].map((b) => b.textContent ?? "");
+		check(exportItems[0]?.startsWith("PDF for printing") && exportItems.some((t) => t.startsWith("Import")), "the Export menu offers an A4 PDF first, and Import");
+		key("Escape");
+
+		const mermaid = "```mermaid\ngantt\n  dateFormat YYYY-MM-DD\n  section Fieldwork\n  Ethics approval :done, eth, 2027-01-04, 2w\n  Interviews      :int, after eth, 4w\n  Data complete   :milestone, 2027-03-01, 0d\n```";
+		board.openImport(mermaid);
+		await sleep(150);
+		check(document.querySelector(".sg-panel.is-open .sg-import-text"), "the import panel opens");
+		check(document.querySelector(".sg-import-format")?.textContent === "Mermaid gantt chart" && document.querySelectorAll(".sg-import-row").length === 3, "it recognises a Mermaid chart and previews 3 items");
+		const addBtn = [...document.querySelectorAll(".sg-panel-foot .sg-btn")].find((b) => b.textContent?.startsWith("Add")) as HTMLButtonElement;
+		check(addBtn?.textContent === "Add 3 items" && !addBtn.disabled, "the Add button says how many");
+		const countBeforeImport = proj().items.length;
+		addBtn.click();
+		const interviews = proj().items.find((i: any) => i.title === "Interviews");
+		const ethics = proj().items.find((i: any) => i.title === "Ethics approval");
+		check(proj().items.length === countBeforeImport + 3 && interviews?.after?.includes(ethics?.id) && ethics?.done, "Add brings them in, with links and done state");
+		check(proj().phases.some((ph: any) => ph.name === "Fieldwork") && picked().size === 3, "a new phase is created and the imported items are selected");
+		key("z", { ctrlKey: true });
+		check(proj().items.length === countBeforeImport && !proj().phases.some((ph: any) => ph.name === "Fieldwork"), "Ctrl+Z undoes the whole import");
+
+		const paste = new Event("paste", { bubbles: true, cancelable: true }) as any;
+		paste.clipboardData = { getData: () => "Task\tStart\tEnd\nPilot\t02/03/2027\t20/03/2027\nWrite-up\t21/03/2027\t30/04/2027" };
+		input.dispatchEvent(paste);
+		await sleep(100);
+		check(paste.defaultPrevented && document.querySelector(".sg-import-format")?.textContent === "Spreadsheet / CSV", "pasting a table into quick add opens it in the import panel");
+		board.closePanel();
+
+		await board.exportPdf();
+		const pdf = app.vault.data.get("Gantt/Renamed in editor.pdf") as ArrayBuffer | undefined;
+		const head = pdf ? new TextDecoder().decode(new Uint8Array(pdf).slice(0, 8)) : "";
+		const pdfText = pdf ? new TextDecoder("latin1").decode(new Uint8Array(pdf)) : "";
+		check(head.startsWith("%PDF-1.4") && /\/MediaBox \[0 0 841\.89 595\.28\]/.test(pdfText) && pdfText.trimEnd().endsWith("%%EOF"), `the PDF is A4 landscape (${pdf ? Math.round(pdf.byteLength / 1024) : 0} KB)`);
+		check(notices.some((n: string) => n.startsWith("open:Gantt/Renamed in editor.pdf")), "and it opens after saving");
+		if (pdf) {
+			let bin = "";
+			new Uint8Array(pdf).forEach((b) => (bin += String.fromCharCode(b)));
+			(window as any).__pdf = btoa(bin);
+		}
+		const ruleHit = document.querySelector(".sg-deadline-hit");
+		const ruleId = ruleHit?.getAttribute("data-id");
+		if (ruleHit) {
+			const rr = ruleHit.getBoundingClientRect();
+			pe("pointerdown", ruleHit, rr.left + 1, rr.top + 40);
+			pe("pointerup", bodyEl, rr.left + 1, rr.top + 40);
+		}
+		check(ruleHit && board["selectedId"] === ruleId && proj().items.find((i: any) => i.id === ruleId)?.type === "deadline", "clicking a deadline's line opens that deadline");
 		log.push(`notices: ${JSON.stringify(notices)}`);
 		(window as any).__note = await app.vault.read(file);
 	} catch (e) {

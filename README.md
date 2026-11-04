@@ -84,6 +84,16 @@ The overview panel shows your next deadline, what's on now and what's coming up.
 
 ![The overview panel in the sidebar](https://raw.githubusercontent.com/Nexziz/simple-gantt/main/docs/gifs/sidebar.gif)
 
+### Print it on A4
+**Export → PDF for printing** makes a print-ready A4 landscape PDF and opens it: compact rows, dates on every milestone and deadline, and each deadline's red line ending in a tag with its name and date. A long plan continues on a second page, with the dates and key dates repeated.
+
+![An A4 landscape printout](https://raw.githubusercontent.com/Nexziz/simple-gantt/main/docs/images/24-print-a4.png)
+
+### Import a plan
+**Export → Import…** (or just paste several lines into the quick-add bar) brings in a table from Excel, Google Sheets or Numbers, a CSV or Markdown table, a Mermaid gantt chart from a note, or a plain list. You see a preview first, and the imported items arrive selected.
+
+![Importing a Mermaid chart](https://raw.githubusercontent.com/Nexziz/simple-gantt/main/docs/gifs/import.gif)
+
 ### Critical path and plan vs. reality
 <kbd>C</kbd> highlights the chain with the least slack before a deadline. <kbd>B</kbd> compares today's chart with the plan you saved, showing where everything was planned and how far it moved.
 
@@ -108,6 +118,7 @@ The overview panel shows your next deadline, what's on now and what's coming up.
 - **Buffer time:** plan slack for the delays that always come (hatched bars, `~` in quick add).
 - **Plan B / decision points:** *"If this isn't done by 8 Jan, I'll use public data instead."* When the date comes, you decide: switch to Plan B (the original stays, faded, as a record) or carry on.
 - **Templates:** *Dissertation* (twelve months of research phases) or *Blank*.
+- **Import** from Excel, Google Sheets, Numbers, CSV/TSV, Markdown tables, Mermaid `gantt` charts or a plain list (one item per line, written like quick add; Markdown headings become phases, `- [x]` means done). Columns are recognised by name (Task, Phase, Start, End, Duration, % Complete, Status, Predecessors…), day-first and month-first dates are told apart, and links come along.
 </details>
 
 <details open>
@@ -118,6 +129,7 @@ The overview panel shows your next deadline, what's on now and what's coming up.
 - **Select several:** use the select tool (<kbd>V</kbd>), <kbd>Shift</kbd>-drag a box on empty space, <kbd>Shift</kbd>/<kbd>Ctrl</kbd>-click, or press <kbd>Ctrl</kbd>+<kbd>A</kbd>. A small bar moves the selection by a week, links it in date order, ticks it off, duplicates or deletes it.
 - **Links** keep the order: when something slips, everything linked after it moves too. Arrows have clean right angles, enter milestones from the top and leave from the bottom. If a deadline would be missed, the arrow turns red and you get a warning.
 - **Detach a link** by clicking its line, then **×** or <kbd>Delete</kbd>.
+- **Deadlines are easy to follow:** each one has a red flag on the date ruler and a dashed red line through the chart. Hover the line for its name and date, or click it to open the deadline.
 - **Rename in place** by double-clicking or pressing <kbd>F2</kbd>. **Duplicate** with <kbd>Ctrl</kbd>+<kbd>D</kbd>. **Undo** anything with <kbd>Ctrl</kbd>+<kbd>Z</kbd>.
 - **Fold phases** into summary bars that show their overall progress.
 </details>
@@ -143,7 +155,8 @@ The overview panel shows your next deadline, what's on now and what's coming up.
 <details open>
 <summary><b>Share &amp; export</b></summary>
 
-- **PNG or SVG** in a clean, white print style with a title block and a legend. You can include the saved plan for a "planned vs. actual" figure.
+- **PDF for printing (A4 landscape):** a print-ready page with a title block, compact rows that print at a readable size, dates on milestones and deadlines, a deadline band where every deadline's line ends in a tag with its name and date, a legend and a footer. Long plans continue on more pages, each repeating the dates and key dates. Print it at 100% from any PDF viewer.
+- **PNG or SVG** in the same clean, white print style. You can include the saved plan for a "planned vs. actual" figure.
 - **Markdown table or CSV** of the whole plan, for an appendix or a spreadsheet.
 - **Reading view:** the note's block renders as a chart preview, and you can copy it into any other note.
 </details>
@@ -267,7 +280,7 @@ baseline:
 
 Then click the timeline button in the left ribbon, or run **Simple Gantt: New dissertation timeline** from the command palette.
 
-**Commands:** Open timeline · Show overview in the sidebar · New dissertation timeline · New blank timeline · Open this note as a timeline
+**Commands:** Open timeline · Show overview in the sidebar · Import into the open timeline · Save a PDF for printing (A4 landscape) · New dissertation timeline · New blank timeline · Open this note as a timeline
 
 ## Development
 

@@ -9,7 +9,7 @@ import { ITEM_TYPE_LABELS, Mood, Project, isDone, isRangeType } from "./types";
 export const MOOD_COLORS: Record<Mood, string> = { 1: "#e34948", 2: "#ec9a8c", 3: "#a9a79f", 4: "#6da7ec", 5: "#2a78d6" };
 const WARNING = "#fab219";
 
-const NS = "http://www.w3.org/2000/svg";
+export const NS = "http://www.w3.org/2000/svg";
 type Attrs = Record<string, string | number | undefined | null>;
 
 export function svgEl<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Attrs = {}, parent?: Element): SVGElementTagNameMap[K] {
@@ -19,7 +19,7 @@ export function svgEl<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Attrs
 	return el;
 }
 
-function text(parent: Element, x: number, y: number, content: string, attrs: Attrs = {}): SVGTextElement {
+export function text(parent: Element, x: number, y: number, content: string, attrs: Attrs = {}): SVGTextElement {
 	const t = svgEl("text", { x, y, "dominant-baseline": "central", ...attrs }, parent);
 	t.textContent = content;
 	return t;
@@ -69,6 +69,8 @@ export interface PaintOptions {
 	plan?: Project["baseline"] | null;
 	/** The board's tool, so empty rows can say what a drag will do. */
 	tool?: "hand" | "select" | "draw";
+	/** Print styling: stronger deadline rules for paper. */
+	print?: boolean;
 	flashId?: string | null;
 	interactive?: boolean;
 	/** Visible horizontal window [from, to] in timeline px; header labels stay inside it while scrolling. */
@@ -169,6 +171,15 @@ export function paintHeader(layout: Layout, o: PaintOptions): SVGSVGElement {
 			fill, stroke: theme.surface, "stroke-width": 1.5, "stroke-linejoin": "round", class: "sg-ruler-milestone",
 		}, svg);
 		svgEl("title", {}, m).textContent = `${p.item.title} · ${formatDay(p.startDay)}`;
+	}
+	// Deadlines get a red flag on the ruler, so each dashed rule below can be traced to its date.
+	// (On paper the deadline band under the chart names them instead.)
+	for (const p of o.print ? [] : layout.placed) {
+		if (p.kind !== "item" || p.item.type !== "deadline" || p.item.dropped) continue;
+		const x = layout.xOf(p.startDay) + layout.pxPerDay / 2;
+		const f = flag(svg, x, layout.headerH - 13, 6, isDone(p.item) ? theme.inkMuted : theme.deadline);
+		f.setAttribute("class", "sg-ruler-deadline");
+		svgEl("title", {}, f).textContent = `Deadline: ${p.item.title} · ${formatDay(p.startDay)}`;
 	}
 
 	if (o.today != null && o.today >= layout.viewStart && o.today <= layout.viewEnd) {
@@ -300,12 +311,12 @@ export function paintBody(layout: Layout, o: PaintOptions): SVGSVGElement {
 
 	// Deadline rules run through every lane so they read as hard stops.
 	for (const p of layout.placed) {
-		if (p.item.type !== "deadline" || p.kind !== "item" || isDone(p.item)) continue;
+		if (p.item.type !== "deadline" || p.kind !== "item" || isDone(p.item) || p.item.dropped) continue;
 		const x = (p.x0 + p.x1) / 2;
-		svgEl("line", {
-			x1: x, x2: x, y1: p.cy + 9, y2: layout.bodyH, stroke: theme.deadline,
-			"stroke-width": 1, "stroke-dasharray": "2 4", "stroke-linecap": "round", opacity: 0.45, "pointer-events": "none",
-		}, svg);
+		svgEl("line", { x1: x, x2: x, y1: p.cy + 9, y2: layout.bodyH, ...deadlineRule(theme, !!o.print), class: "sg-deadline-rule", "data-id": p.item.id }, svg);
+		// On screen the rule can be hovered (name and date) and clicked (opens the deadline).
+		if (o.interactive)
+			svgEl("line", { x1: x, x2: x, y1: p.cy + 9, y2: layout.bodyH, stroke: "transparent", "stroke-width": 7, "pointer-events": "stroke", class: "sg-deadline-hit", "data-id": p.item.id }, svg);
 	}
 
 	if (o.today != null && o.today >= layout.viewStart && o.today <= layout.viewEnd) {
@@ -720,6 +731,54 @@ function check(parent: Element, cx: number, cy: number, s: number, stroke: strin
 	}, parent);
 }
 
+/** How a deadline's rule is drawn: a quiet dashed line on screen, a clear one on paper. */
+function deadlineRule(theme: Theme, print: boolean): Attrs {
+	return print
+		? { stroke: theme.deadline, "stroke-width": 1.3, "stroke-dasharray": "5 3", opacity: 0.85, "pointer-events": "none" }
+		: { stroke: theme.deadline, "stroke-width": 1.25, "stroke-dasharray": "3 3", "stroke-linecap": "round", opacity: 0.6, "pointer-events": "none" };
+}
+
+/**
+ * A band under the chart where every deadline's rule ends in a tag with its name and date
+ * (exports and print), so a rule seen far from the Key dates row is easy to identify.
+ */
+export function paintDeadlineBand(layout: Layout, o: PaintOptions): { svg: SVGSVGElement; height: number } | null {
+	const { theme, measure } = o;
+	const deadlines = layout.placed
+		.filter((p) => p.kind === "item" && p.item.type === "deadline" && !p.item.dropped)
+		.sort((a, b) => a.startDay - b.startDay);
+	if (!deadlines.length) return null;
+	const pillH = 18, rowGap = 5, top = 8, size = 10.5;
+	const rowsRight: number[] = [];
+	const tags = deadlines.map((p) => {
+		const done = isDone(p.item);
+		const label = `${done ? "✓ " : ""}${p.item.title} · ${formatDay(p.startDay, false)}`;
+		const w = Math.min(measure(label, 600, size) + 24, layout.width);
+		const x = layout.xOf(p.startDay) + layout.pxPerDay / 2;
+		const px = Math.max(0, Math.min(x - w / 2, layout.width - w));
+		let row = rowsRight.findIndex((right) => px >= right + 6);
+		if (row < 0) {
+			row = rowsRight.length;
+			rowsRight.push(0);
+		}
+		rowsRight[row] = px + w;
+		return { p, x, px, w, row, label, done };
+	});
+	const height = top + rowsRight.length * (pillH + rowGap) + 3;
+	const svg = svgEl("svg", { width: layout.width, height, class: "sg-deadline-band", "font-family": theme.font });
+	svgEl("rect", { x: 0, y: 0, width: layout.width, height, fill: theme.surface }, svg);
+	for (const t of tags) {
+		const y = top + t.row * (pillH + rowGap);
+		const color = t.done ? theme.inkMuted : theme.deadline;
+		svgEl("line", { x1: t.x, x2: t.x, y1: 0, y2: y, ...deadlineRule(theme, !!o.print), stroke: color }, svg);
+		svgEl("rect", { x: t.px, y, width: t.w, height: pillH, rx: pillH / 2, fill: color }, svg);
+		const f = flag(svg, t.px + 9, y + 4.5, 4.5, "#ffffff");
+		f.removeAttribute("class");
+		text(svg, t.px + 19, y + pillH / 2 + 0.5, t.label, { fill: "#ffffff", "font-size": size, "font-weight": 600 });
+	}
+	return { svg, height };
+}
+
 /** A small pennant: pole at x from y to y+2s, flag to the right. */
 function flag(parent: Element, x: number, y: number, s: number, fill: string): SVGGElement {
 	const g = svgEl("g", { class: "sg-mark" }, parent);
@@ -758,18 +817,19 @@ export function renderExportSvg(project: Project, opts: ExportOptions = {}): SVG
 	const timelineW = totalW - margin * 2 - labelWidth;
 	const probe = computeLayout(project, { pxPerDay: 1, showEmptyLanes: false, measure });
 	const days = probe.viewEnd - probe.viewStart + 1;
-	const layout = computeLayout(project, { pxPerDay: timelineW / days, showEmptyLanes: false, measure });
+	const layout = computeLayout(project, { pxPerDay: timelineW / days, showEmptyLanes: false, measure, datedLabels: true, hideEmptyPhases: true });
 	const paint: PaintOptions = {
-		theme, measure, interactive: false,
+		theme, measure, interactive: false, print: true,
 		today: opts.includeToday ? (opts.today ?? null) : null,
 		plan: opts.compare ? project.baseline : null,
 	};
+	const band = paintDeadlineBand(layout, paint);
 
 	// Title block
 	const titleH = 112;
 	const legend = buildLegend(project, theme, measure, totalW - margin * 2, !!(opts.compare && project.baseline));
 	const chartTop = titleH;
-	const chartH = layout.headerH + layout.bodyH;
+	const chartH = layout.headerH + layout.bodyH + (band?.height ?? 0);
 	const totalH = chartTop + chartH + 28 + legend.height + margin;
 
 	const svg = svgEl("svg", {
@@ -798,6 +858,7 @@ export function renderExportSvg(project: Project, opts: ExportOptions = {}): SVG
 	nest(chart, paintHeader(layout, paint), labelWidth, 0);
 	nest(chart, paintLabels(layout, labelWidth, paint), 0, layout.headerH);
 	nest(chart, paintBody(layout, paint), labelWidth, layout.headerH);
+	if (band) bandBlock(chart, band, labelWidth, layout.headerH + layout.bodyH, theme);
 	svgEl("rect", {
 		x: 0.5, y: 0.5, width: labelWidth + layout.width - 1, height: chartH - 1, rx: 6,
 		fill: "none", stroke: theme.axis,
@@ -809,22 +870,31 @@ export function renderExportSvg(project: Project, opts: ExportOptions = {}): SVG
 	return svg;
 }
 
+/** The deadline band under a chart: its label in the left column, the tags on the right. */
+export function bandBlock(chart: Element, band: { svg: SVGSVGElement; height: number }, labelWidth: number, y: number, theme: Theme) {
+	svgEl("rect", { x: 0, y, width: labelWidth, height: band.height, fill: theme.surface }, chart);
+	svgEl("line", { x1: 0, x2: labelWidth + Number(band.svg.getAttribute("width")), y1: y + 0.5, y2: y + 0.5, stroke: theme.axis }, chart);
+	svgEl("line", { x1: labelWidth - 0.5, x2: labelWidth - 0.5, y1: y, y2: y + band.height, stroke: theme.axis }, chart);
+	text(chart, 16, y + 17, "DEADLINES", { fill: theme.deadline, "font-size": 9.5, "font-weight": 700, "letter-spacing": "0.08em" });
+	nest(chart, band.svg, labelWidth, y);
+}
+
 /** "Sep – Dec 2026" or "Sep 2026 – Aug 2027". */
-function formatPeriod(start: number, end: number): string {
+export function formatPeriod(start: number, end: number): string {
 	const [sy, sm] = ymd(start);
 	const [ey, em] = ymd(end);
 	if (sy === ey) return sm === em ? `${MONTHS_LONG[sm]} ${sy}` : `${MONTHS_SHORT[sm]} – ${MONTHS_SHORT[em]} ${sy}`;
 	return `${MONTHS_SHORT[sm]} ${sy} – ${MONTHS_SHORT[em]} ${ey}`;
 }
 
-function nest(parent: Element, child: SVGSVGElement, x: number, y: number) {
+export function nest(parent: Element, child: SVGSVGElement, x: number, y: number) {
 	child.setAttribute("x", String(x));
 	child.setAttribute("y", String(y));
 	child.removeAttribute("class");
 	parent.appendChild(child);
 }
 
-function buildLegend(project: Project, theme: Theme, measure: Measure, maxW: number, compare = false): { node: SVGGElement; height: number } {
+export function buildLegend(project: Project, theme: Theme, measure: Measure, maxW: number, compare = false, small = false): { node: SVGGElement; height: number } {
 	const g = svgEl("g", {});
 	const entries: { draw: (g: SVGGElement, x: number, y: number) => void; label: string }[] = [];
 	for (const ph of project.phases)
@@ -862,19 +932,21 @@ function buildLegend(project: Project, theme: Theme, measure: Measure, maxW: num
 		symbolEntries.push({ label: "Dropped", draw: (g, x, y) => svgEl("rect", { x, y: y - 6, width: 18, height: 12, rx: 3, fill: theme.inkMuted, opacity: 0.42 }, g) });
 
 	let y = 0;
-	const rowH = 26;
+	const rowH = small ? 20 : 26;
+	const size = small ? 10.5 : 12;
+	const indent = small ? 70 : 92;
 	const place = (list: typeof entries, heading: string) => {
 		if (!list.length) return;
-		text(g, 0, y + 9, heading, { fill: theme.inkMuted, "font-size": 10, "font-weight": 700, "letter-spacing": "0.08em" });
-		let x = 92;
+		text(g, 0, y + 9, heading, { fill: theme.inkMuted, "font-size": small ? 9 : 10, "font-weight": 700, "letter-spacing": "0.08em" });
+		let x = indent;
 		for (const e of list) {
-			const w = 26 + measure(e.label, 500, 12) + 22;
-			if (x + w > maxW && x > 92) {
-				x = 92;
+			const w = 26 + measure(e.label, 500, size) + (small ? 16 : 22);
+			if (x + w > maxW && x > indent) {
+				x = indent;
 				y += rowH;
 			}
 			e.draw(g, x, y + 9);
-			text(g, x + 26, y + 9, e.label, { fill: theme.inkSecondary, "font-size": 12, "font-weight": 500 });
+			text(g, x + 26, y + 9, e.label, { fill: theme.inkSecondary, "font-size": size, "font-weight": 500 });
 			x += w;
 		}
 		y += rowH;
@@ -889,7 +961,12 @@ export function svgToString(svg: SVGSVGElement): string {
 }
 
 /** Rasterise an export SVG to a PNG blob at the given scale. */
-export async function svgToPng(svg: SVGSVGElement, scale = 2): Promise<Blob> {
+export function svgToPng(svg: SVGSVGElement, scale = 2): Promise<Blob> {
+	return svgToImage(svg, scale, "image/png");
+}
+
+/** Rasterise an SVG to PNG or JPEG (for PDF pages). */
+export async function svgToImage(svg: SVGSVGElement, scale: number, type: "image/png" | "image/jpeg", quality?: number): Promise<Blob> {
 	const w = Number(svg.getAttribute("width"));
 	const h = Number(svg.getAttribute("height"));
 	const src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svgToString(svg));
@@ -905,5 +982,5 @@ export async function svgToPng(svg: SVGSVGElement, scale = 2): Promise<Blob> {
 	const ctx = canvas.getContext("2d")!;
 	ctx.scale(scale, scale);
 	ctx.drawImage(img, 0, 0, w, h);
-	return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("PNG encoding failed"))), "image/png"));
+	return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Image encoding failed"))), type, quality));
 }
