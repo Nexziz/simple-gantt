@@ -157,6 +157,7 @@ The overview panel shows your next deadline, what's on now and what's coming up.
 
 - **PDF for printing (A4 landscape):** a print-ready page with a title block, compact rows that print at a readable size, dates on milestones and deadlines, a deadline band where every deadline's line ends in a tag with its name and date, a legend and a footer. Long plans continue on more pages, each repeating the dates and key dates. Print it at 100% from any PDF viewer.
 - **PNG or SVG** in the same clean, white print style. You can include the saved plan for a "planned vs. actual" figure.
+- **Print and PDF say each thing once:** bold outlined diamonds for milestones, deadlines named once in the Key dates row, no link arrows, no repeated phase names, and a short legend.
 - **Markdown table or CSV** of the whole plan, for an appendix or a spreadsheet.
 - **Reading view:** the note's block renders as a chart preview, and you can copy it into any other note.
 </details>

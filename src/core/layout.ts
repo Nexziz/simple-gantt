@@ -159,6 +159,22 @@ export interface LayoutOptions {
 	datedLabels?: boolean;
 	/** Leave out phases with nothing in them (print and exports). */
 	hideEmptyPhases?: boolean;
+	/**
+	 * Paper mode: say each thing once. Milestones get plain labels instead of badges, Plan B and decision
+	 * marks lose their text (the legend explains the shapes), buffers only keep a label that fits inside,
+	 * and a phase's only task shows its dates when its title just repeats the phase name.
+	 */
+	clean?: boolean;
+}
+
+const STOPWORDS = new Set(["and", "the", "of", "for", "with", "a", "an", "to", "in", "on"]);
+
+/** True when the title adds nothing to the phase name next to it (all of the phase's words appear in it). */
+export function repeatsPhase(title: string, phaseName: string): boolean {
+	const words = (s: string) => s.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w && !STOPWORDS.has(w));
+	const t = new Set(words(title));
+	const p = words(phaseName);
+	return p.length > 0 && p.every((w) => t.has(w));
 }
 
 export type Measure = LayoutOptions["measure"];
@@ -297,16 +313,21 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 		});
 
 		// Horizontal geometry first; rows come from packing the full footprint (mark + outside label).
+		const clean = !!opts.clean;
+		const onlyTask = group.kind === "phase" && group.items.filter((i) => i.type === "task" && !i.buffer && !i.dropped).length === 1;
 		const pre = sorted.map((mark) => {
 			const item = mark.item;
 			const [s, e] = itemDays(item);
 			const done = mark.kind === "item" && isDone(item);
 			const dated = opts.datedLabels && mark.kind === "item" && (item.type === "milestone" || item.type === "deadline" || item.type === "event");
-			const label = journal || (flat && mark.kind !== "summary") ? "" : (done ? "✓ " : "") + (item.title || "Untitled") + (dated ? ` · ${formatDay(s, false)}` : "");
-			const badge = item.type === "milestone" && !!label;
-			const weight = item.type === "deadline" || item.type === "location" || badge ? 600 : 500;
+			let label = journal || (flat && mark.kind !== "summary") ? "" : (done ? "✓ " : "") + (item.title || "Untitled") + (dated ? ` · ${formatDay(s, false)}` : "");
+			if (clean && (mark.kind === "ghost" || mark.kind === "decision")) label = "";
+			else if (clean && label && mark.kind === "item" && item.type === "task" && !item.buffer && onlyTask && group.phase && repeatsPhase(item.title, group.phase.name))
+				label = `${formatDay(s, false)} to ${formatDay(e, false)}`;
+			const badge = item.type === "milestone" && !!label && !clean;
+			const weight = item.type === "deadline" || item.type === "location" || item.type === "milestone" || badge ? 600 : 500;
 			// Milestone labels sit in a tinted badge: reserve its padding.
-			const labelW = label ? opts.measure(label, weight, g.fontSize) + (badge ? MILESTONE_BADGE_PAD * 2 : 0) : 0;
+			let labelW = label ? opts.measure(label, weight, g.fontSize) + (badge ? MILESTONE_BADGE_PAD * 2 : 0) : 0;
 			let x0: number, x1: number, labelX: number, labelInside = false, labelAnchor: "start" | "end" = "start";
 			if (item.type === "task" || item.type === "location") {
 				x0 = xOf(s);
@@ -321,6 +342,12 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 				const r = item.type === "milestone" ? 9 : 6;
 				x0 = cx - r;
 				x1 = cx + r;
+				labelX = x1 + g.labelGap;
+			}
+			// Paper mode: a buffer only keeps its name when it fits inside the bar; the hatching says the rest.
+			if (clean && item.type === "task" && item.buffer && !labelInside && label) {
+				label = "";
+				labelW = 0;
 				labelX = x1 + g.labelGap;
 			}
 			if (!labelInside && labelX + labelW + 4 > width) {

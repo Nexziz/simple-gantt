@@ -1,6 +1,6 @@
 import { formatDay, toDay } from "./dates";
 import { Lane, Layout, computeLayout } from "./layout";
-import { NS, PaintOptions, bandBlock, buildLegend, formatPeriod, makeMeasure, nest, paintBody, paintDeadlineBand, paintHeader, paintLabels, svgEl, text } from "./render";
+import { NS, PaintOptions, buildLegend, formatPeriod, makeMeasure, nest, paintBody, paintHeader, paintLabels, svgEl, text } from "./render";
 import { PRINT_THEME, Theme } from "./theme";
 import type { Project } from "./types";
 
@@ -16,7 +16,7 @@ export interface PrintOptions {
 
 /**
  * The timeline laid out for A4 landscape paper: a title block, the chart with compact rows and dates on
- * milestones and deadlines, a deadline band, a legend and a footer. When the rows don't fit on one sheet they
+ * milestones and deadlines, a legend and a footer. When the rows don't fit on one sheet they
  * continue on the next, each page repeating the date header and the Key dates row.
  */
 export function renderPrintPages(project: Project, opts: PrintOptions = {}): SVGSVGElement[] {
@@ -28,21 +28,20 @@ export function renderPrintPages(project: Project, opts: PrintOptions = {}): SVG
 	const timelineW = W - 2 * M - labelWidth;
 	const probe = computeLayout(project, { pxPerDay: 1, showEmptyLanes: false, measure, density: "print", hideEmptyPhases: true });
 	const days = probe.viewEnd - probe.viewStart + 1;
-	const layout = computeLayout(project, { pxPerDay: timelineW / days, showEmptyLanes: false, measure, density: "print", datedLabels: true, hideEmptyPhases: true });
+	const layout = computeLayout(project, { pxPerDay: timelineW / days, showEmptyLanes: false, measure, density: "print", datedLabels: true, hideEmptyPhases: true, clean: true });
 	const paint: PaintOptions = { theme, measure, interactive: false, print: true, today: null, plan: opts.compare ? project.baseline : null };
-	const band = paintDeadlineBand(layout, paint);
-	const legend = () => buildLegend(project, theme, measure, W - 2 * M, !!(opts.compare && project.baseline), true);
+	const legend = () => buildLegend(project, theme, measure, W - 2 * M, !!(opts.compare && project.baseline), true, true);
 	const legendH = legend().height;
 	// The footer sits in the bottom margin, so it takes no room from the chart.
 	const title1 = 50, titleN = 26, gap = 10;
-	const room = (titleH: number) => H - 2 * M - titleH - layout.headerH - (band?.height ?? 0) - gap - legendH;
+	const room = (titleH: number) => H - 2 * M - titleH - layout.headerH - gap - legendH;
 	// A little too tall still fits on one sheet, slightly smaller; only much longer plans continue on a second page.
 	const SHRINK = 0.8;
 
 	// Split the rows into pages: Key dates on every page, then as many lanes as fit.
 	const pages: Lane[][] = [];
 	const total = layout.lanes.reduce((s, l) => s + l.height, 0);
-	const chrome = layout.headerH + (band?.height ?? 0);
+	const chrome = layout.headerH;
 	if (total <= room(title1) || (chrome + total) * SHRINK <= chrome + room(title1)) pages.push(layout.lanes);
 	else {
 		const pinned = layout.lanes.filter((l) => l.kind === "keydates");
@@ -82,7 +81,7 @@ export function renderPrintPages(project: Project, opts: PrintOptions = {}): SVG
 
 		// Chart
 		const slice = sliceLayout(layout, lanes);
-		const chartH = layout.headerH + slice.bodyH + (band?.height ?? 0);
+		const chartH = layout.headerH + slice.bodyH;
 		const avail = H - 2 * M - titleH - gap - legendH;
 		const scale = Math.min(1, avail / chartH);
 		const chartW = labelWidth + layout.width;
@@ -97,7 +96,6 @@ export function renderPrintPages(project: Project, opts: PrintOptions = {}): SVG
 		nest(chart, paintHeader(layout, paint), labelWidth, 0);
 		nest(chart, paintLabels(slice, labelWidth, paint), 0, layout.headerH);
 		nest(chart, paintBody(slice, paint), labelWidth, layout.headerH);
-		if (band) bandBlock(chart, { svg: band.svg.cloneNode(true) as SVGSVGElement, height: band.height }, labelWidth, layout.headerH + slice.bodyH, theme);
 		svgEl("rect", { x: 0.5, y: 0.5, width: chartW - 1, height: chartH - 1, rx: 6, fill: "none", stroke: theme.axis }, chart);
 
 		// Legend and footer

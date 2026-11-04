@@ -160,7 +160,8 @@ export function paintHeader(layout: Layout, o: PaintOptions): SVGSVGElement {
 	svgEl("line", { x1: 0, x2: layout.width, y1: layout.headerH - 0.5, y2: layout.headerH - 0.5, stroke: theme.axis }, svg);
 
 	// Milestones are marked on the date ruler too, so they're visible even when rows are folded or scrolled away.
-	for (const p of layout.placed) {
+	// (Paper has no folded rows and a bold diamond on every milestone, so the ruler stays clear.)
+	for (const p of o.print ? [] : layout.placed) {
 		if (p.kind !== "item" || p.item.type !== "milestone" || p.item.dropped) continue;
 		const x = layout.xOf(p.startDay) + layout.pxPerDay / 2;
 		const y = layout.headerH - 0.5;
@@ -173,7 +174,7 @@ export function paintHeader(layout: Layout, o: PaintOptions): SVGSVGElement {
 		svgEl("title", {}, m).textContent = `${p.item.title} · ${formatDay(p.startDay)}`;
 	}
 	// Deadlines get a red flag on the ruler, so each dashed rule below can be traced to its date.
-	// (On paper the deadline band under the chart names them instead.)
+	// (On paper the Key dates row names them, so the ruler stays clear.)
 	for (const p of o.print ? [] : layout.placed) {
 		if (p.kind !== "item" || p.item.type !== "deadline" || p.item.dropped) continue;
 		const x = layout.xOf(p.startDay) + layout.pxPerDay / 2;
@@ -324,7 +325,8 @@ export function paintBody(layout: Layout, o: PaintOptions): SVGSVGElement {
 		svgEl("line", { x1: x, x2: x, y1: 0, y2: layout.bodyH, stroke: theme.accent, "stroke-width": 1.5, "pointer-events": "none" }, svg);
 	}
 
-	const detach = layout.on("links") ? paintLinks(svg, layout, o) : null;
+	// Paper shows no link arrows: the order reads from the dates, and arrows clutter a printed page.
+	const detach = layout.on("links") && !o.print ? paintLinks(svg, layout, o) : null;
 
 	const items = svgEl("g", { class: "sg-items" }, svg);
 	const bufferIds = new Map<string, string>();
@@ -464,14 +466,22 @@ function paintItem(parent: Element, p: Placed, layout: Layout, o: PaintOptions, 
 		const cx = (p.x0 + p.x1) / 2;
 		if (it.type === "milestone") {
 			const r = 8.5;
-			// A soft glow ring makes milestones stand out from bars and key dates.
-			if (!p.lane.collapsed) svgEl("circle", { cx, cy: p.cy, r: 14, fill: color, opacity: theme.dark ? 0.2 : 0.14, "pointer-events": "none", class: "sg-glow" }, g);
-			svgEl("path", {
-				d: `M${cx},${p.cy - r} L${cx + r},${p.cy} L${cx},${p.cy + r} L${cx - r},${p.cy} Z`,
-				fill: p.lane.collapsed ? theme.surface : color, stroke: p.lane.collapsed ? color : theme.surface,
-				"stroke-width": 2, "stroke-linejoin": "round", class: "sg-mark", "data-part": "body",
-			}, g);
-			if (isDone(it) && !p.lane.collapsed) check(g, cx, p.cy, 3.2, p.color === "yellow" ? "#0b0b0b" : "#ffffff");
+			if (o.print) {
+				// Paper: one solid diamond with a dark outline, so milestones are easy to spot with no glow or badge.
+				svgEl("path", {
+					d: `M${cx},${p.cy - r - 1} L${cx + r + 1},${p.cy} L${cx},${p.cy + r + 1} L${cx - r - 1},${p.cy} Z`,
+					fill: color, stroke: theme.ink, "stroke-width": 1.6, "stroke-linejoin": "round", class: "sg-mark", "data-part": "body",
+				}, g);
+			} else {
+				// A soft glow ring makes milestones stand out from bars and key dates.
+				if (!p.lane.collapsed) svgEl("circle", { cx, cy: p.cy, r: 14, fill: color, opacity: theme.dark ? 0.2 : 0.14, "pointer-events": "none", class: "sg-glow" }, g);
+				svgEl("path", {
+					d: `M${cx},${p.cy - r} L${cx + r},${p.cy} L${cx},${p.cy + r} L${cx - r},${p.cy} Z`,
+					fill: p.lane.collapsed ? theme.surface : color, stroke: p.lane.collapsed ? color : theme.surface,
+					"stroke-width": 2, "stroke-linejoin": "round", class: "sg-mark", "data-part": "body",
+				}, g);
+				if (isDone(it) && !p.lane.collapsed) check(g, cx, p.cy, 3.2, p.color === "yellow" ? "#0b0b0b" : "#ffffff");
+			}
 			if (o.interactive && !it.dropped && layout.on("links")) connector(g, connectorX(p), p.cy, color, theme);
 		} else if (it.type === "deadline") {
 			flag(g, cx, p.cy - 8, 8, theme.deadline).setAttribute("data-part", "body");
@@ -482,8 +492,8 @@ function paintItem(parent: Element, p: Placed, layout: Layout, o: PaintOptions, 
 			}, g);
 		}
 		svgEl("rect", { x: cx - 10, y: p.cy - 11, width: 20, height: 22, fill: "transparent", "data-part": "body", class: "sg-hit" }, g);
-		if (it.type === "milestone" && p.label) milestoneBadge(g, p, color, theme, labelAttrs);
-		else text(g, p.labelX, p.cy, p.label, { ...labelAttrs, ...halo(theme), fill: theme.ink });
+		if (it.type === "milestone" && p.label && !o.print) milestoneBadge(g, p, color, theme, labelAttrs);
+		else text(g, p.labelX, p.cy, p.label, { ...labelAttrs, ...halo(theme), fill: theme.ink, ...(it.type === "milestone" ? { "font-weight": 700 } : {}) });
 	}
 }
 
@@ -817,19 +827,19 @@ export function renderExportSvg(project: Project, opts: ExportOptions = {}): SVG
 	const timelineW = totalW - margin * 2 - labelWidth;
 	const probe = computeLayout(project, { pxPerDay: 1, showEmptyLanes: false, measure });
 	const days = probe.viewEnd - probe.viewStart + 1;
-	const layout = computeLayout(project, { pxPerDay: timelineW / days, showEmptyLanes: false, measure, datedLabels: true, hideEmptyPhases: true });
+	const layout = computeLayout(project, { pxPerDay: timelineW / days, showEmptyLanes: false, measure, datedLabels: true, hideEmptyPhases: true, clean: true });
 	const paint: PaintOptions = {
 		theme, measure, interactive: false, print: true,
 		today: opts.includeToday ? (opts.today ?? null) : null,
 		plan: opts.compare ? project.baseline : null,
 	};
-	const band = paintDeadlineBand(layout, paint);
+	// Deadlines show once, in the Key dates row with their rules; paper has no second list of them.
 
 	// Title block
 	const titleH = 112;
-	const legend = buildLegend(project, theme, measure, totalW - margin * 2, !!(opts.compare && project.baseline));
+	const legend = buildLegend(project, theme, measure, totalW - margin * 2, !!(opts.compare && project.baseline), false, true);
 	const chartTop = titleH;
-	const chartH = layout.headerH + layout.bodyH + (band?.height ?? 0);
+	const chartH = layout.headerH + layout.bodyH;
 	const totalH = chartTop + chartH + 28 + legend.height + margin;
 
 	const svg = svgEl("svg", {
@@ -858,7 +868,6 @@ export function renderExportSvg(project: Project, opts: ExportOptions = {}): SVG
 	nest(chart, paintHeader(layout, paint), labelWidth, 0);
 	nest(chart, paintLabels(layout, labelWidth, paint), 0, layout.headerH);
 	nest(chart, paintBody(layout, paint), labelWidth, layout.headerH);
-	if (band) bandBlock(chart, band, labelWidth, layout.headerH + layout.bodyH, theme);
 	svgEl("rect", {
 		x: 0.5, y: 0.5, width: labelWidth + layout.width - 1, height: chartH - 1, rx: 6,
 		fill: "none", stroke: theme.axis,
@@ -894,15 +903,16 @@ export function nest(parent: Element, child: SVGSVGElement, x: number, y: number
 	parent.appendChild(child);
 }
 
-export function buildLegend(project: Project, theme: Theme, measure: Measure, maxW: number, compare = false, small = false): { node: SVGGElement; height: number } {
+export function buildLegend(project: Project, theme: Theme, measure: Measure, maxW: number, compare = false, small = false, clean = false): { node: SVGGElement; height: number } {
 	const g = svgEl("g", {});
 	const entries: { draw: (g: SVGGElement, x: number, y: number) => void; label: string }[] = [];
-	for (const ph of project.phases)
+	// Paper mode: the phase colours already sit beside each row, so they are not listed again.
+	for (const ph of clean ? [] : project.phases)
 		entries.push({ label: ph.name, draw: (g, x, y) => svgEl("rect", { x, y: y - 6, width: 18, height: 12, rx: 3, fill: theme.palette[ph.color] }, g) });
 	const present = new Set(project.items.filter((i) => (i.type !== "location" || isOn(project, "locations")) && (i.type !== "event" || isOn(project, "events"))).map((i) => i.type));
 	const symbols: [keyof typeof ITEM_TYPE_LABELS, (g: SVGGElement, x: number, y: number) => void][] = [
 		["task", (g, x, y) => svgEl("rect", { x, y: y - 6, width: 18, height: 12, rx: 3, fill: theme.inkMuted }, g)],
-		["milestone", (g, x, y) => svgEl("path", { d: `M${x + 9},${y - 7} L${x + 16},${y} L${x + 9},${y + 7} L${x + 2},${y} Z`, fill: theme.inkSecondary }, g)],
+		["milestone", (g, x, y) => svgEl("path", { d: `M${x + 9},${y - 7} L${x + 16},${y} L${x + 9},${y + 7} L${x + 2},${y} Z`, fill: clean ? theme.palette.blue : theme.inkSecondary, ...(clean ? { stroke: theme.ink, "stroke-width": 1.4, "stroke-linejoin": "round" } : {}) }, g)],
 		["deadline", (g, x, y) => flag(g, x + 6, y - 7, 7, theme.deadline)],
 		["event", (g, x, y) => svgEl("circle", { cx: x + 9, cy: y, r: 5, fill: theme.inkSecondary }, g)],
 		["location", (g, x, y) => {
@@ -921,7 +931,7 @@ export function buildLegend(project: Project, theme: Theme, measure: Measure, ma
 			svgEl("rect", { x: x + 0.5, y: y - 5.5, width: 17, height: 11, rx: 3, fill: theme.surfaceAlt, stroke: theme.inkMuted }, g);
 			for (let i = 0; i < 3; i++) svgEl("line", { x1: x + 3 + i * 5, y1: y + 5, x2: x + 8 + i * 5, y2: y - 5, stroke: theme.inkMuted, "stroke-width": 1.4 }, g);
 		} });
-	if (isOn(project, "links") && project.items.some((i) => i.after?.length))
+	if (!clean && isOn(project, "links") && project.items.some((i) => i.after?.length))
 		symbolEntries.push({ label: "Comes after", draw: (g, x, y) => {
 			svgEl("path", { d: `M${x},${y - 4} h5 V${y + 3} H${x + 17}`, fill: "none", stroke: theme.inkMuted, "stroke-width": 1.25 }, g);
 			svgEl("path", { d: `M${x + 12},${y - 0.5} L${x + 18},${y + 3} L${x + 12},${y + 6.5} Z`, fill: theme.inkMuted }, g);
