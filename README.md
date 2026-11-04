@@ -85,7 +85,7 @@ The overview panel shows your next deadline, what's on now and what's coming up.
 ![The overview panel in the sidebar](https://raw.githubusercontent.com/Nexziz/simple-gantt/main/docs/gifs/sidebar.gif)
 
 ### Print it on A4
-**Export → PDF for printing** makes a print-ready A4 landscape PDF and opens it: compact rows, dates on every milestone and deadline, and each deadline's red line ending in a tag with its name and date. A long plan continues on a second page, with the dates and key dates repeated.
+**Export → PDF for printing** makes a print-ready A4 landscape PDF and opens it. It's kept as plain as possible: deadlines in red in one row at the top, each with a line through the whole chart; milestones as bold diamonds with their dates; and no legend or summaries, because the picture explains itself. The rows spread out to fill the sheet, and a long plan continues on a second page with the dates and deadlines repeated.
 
 ![An A4 landscape printout](https://raw.githubusercontent.com/Nexziz/simple-gantt/main/docs/images/24-print-a4.png)
 
@@ -155,9 +155,8 @@ The overview panel shows your next deadline, what's on now and what's coming up.
 <details open>
 <summary><b>Share &amp; export</b></summary>
 
-- **PDF for printing (A4 landscape):** a print-ready page with a title block, compact rows that print at a readable size, dates on milestones and deadlines, a deadline band where every deadline's line ends in a tag with its name and date, a legend and a footer. Long plans continue on more pages, each repeating the dates and key dates. Print it at 100% from any PDF viewer.
-- **PNG or SVG** in the same clean, white print style. You can include the saved plan for a "planned vs. actual" figure.
-- **Print and PDF say each thing once:** bold outlined diamonds for milestones, deadlines named once in the Key dates row, no link arrows, no repeated phase names, and a short legend.
+- **PDF for printing (A4 landscape):** a clean page with nothing said twice. Deadlines appear once, in red at the top, with a line through every phase. Milestones are bold diamonds with their dates. A Plan B shows its decision date in its own label. There's no legend, item counts or long arrows cutting across phases. Long plans continue on more pages, each repeating the dates and deadlines. Print it at 100% from any PDF viewer.
+- **PNG or SVG** in the same clean, white style. You can include the saved plan for a "planned vs. actual" figure.
 - **Markdown table or CSV** of the whole plan, for an appendix or a spreadsheet.
 - **Reading view:** the note's block renders as a chart preview, and you can copy it into any other note.
 </details>

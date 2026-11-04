@@ -154,27 +154,18 @@ export interface LayoutOptions {
 	/** Today as a day number, for check-in and decision states. */
 	today?: number;
 	density?: Density;
+	/** Exact spacing to use instead of a density (print stretches rows to fill the page). */
+	geometry?: Geometry;
 	measure: (text: string, weight?: number, size?: number) => number;
 	/** Add the date to milestone, deadline and key date labels (print): "Chapter 2 drafted · 15 Jan". */
 	datedLabels?: boolean;
 	/** Leave out phases with nothing in them (print and exports). */
 	hideEmptyPhases?: boolean;
 	/**
-	 * Paper mode: say each thing once. Milestones get plain labels instead of badges, Plan B and decision
-	 * marks lose their text (the legend explains the shapes), buffers only keep a label that fits inside,
-	 * and a phase's only task shows its dates when its title just repeats the phase name.
+	 * Paper: dated labels, no empty phases, milestone labels without badges, and a Plan B's decision date in its
+	 * dashed bar's label instead of a separate marker.
 	 */
-	clean?: boolean;
-}
-
-const STOPWORDS = new Set(["and", "the", "of", "for", "with", "a", "an", "to", "in", "on"]);
-
-/** True when the title adds nothing to the phase name next to it (all of the phase's words appear in it). */
-export function repeatsPhase(title: string, phaseName: string): boolean {
-	const words = (s: string) => s.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w && !STOPWORDS.has(w));
-	const t = new Set(words(title));
-	const p = words(phaseName);
-	return p.length > 0 && p.every((w) => t.has(w));
+	print?: boolean;
 }
 
 export type Measure = LayoutOptions["measure"];
@@ -214,7 +205,7 @@ function pack(intervals: [number, number][], gap: number): number[] {
 }
 
 export function computeLayout(project: Project, opts: LayoutOptions): Layout {
-	const g = geometry(opts.density ?? project.density);
+	const g = opts.geometry ?? geometry(opts.density ?? project.density);
 	const [viewStart, viewEnd] = viewRange(project);
 	const ppd = opts.pxPerDay;
 	const width = (viewEnd - viewStart + 1) * ppd;
@@ -229,12 +220,13 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 	const asMarks = (items: GanttItem[]): Mark[] => items.map((item) => ({ kind: "item", item }));
 
 	// Plan B: a pending contingency adds a decision point and, when it has dates, a ghost bar.
+	const print = !!opts.print;
 	const ghosts: Mark[] = [];
 	const decisions: Mark[] = [];
 	for (const it of project.items) {
 		const pb = it.planB;
 		if (!on("planb") || !pb || pb.status || isDone(it) || it.dropped) continue;
-		decisions.push({
+		if (!(print && pb.start)) decisions.push({
 			kind: "decision",
 			parentId: it.id,
 			state: toDay(pb.by) <= today ? "due" : "pending",
@@ -245,7 +237,8 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 				kind: "ghost",
 				parentId: it.id,
 				item: {
-					id: `${it.id}~planb`, type: "task", title: `Plan B · ${pb.title || "Alternative"}`,
+					id: `${it.id}~planb`, type: "task",
+					title: print ? `Plan B, decide by ${formatDay(toDay(pb.by), false)} · ${pb.title || "Alternative"}` : `Plan B · ${pb.title || "Alternative"}`,
 					start: pb.start, end: pb.end ?? pb.start, phase: it.phase,
 				},
 			});
@@ -276,7 +269,7 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 	const inPhase = (i: GanttItem) => i.type === "task" || i.type === "milestone";
 	for (const phase of project.phases) {
 		const items = project.items.filter((i) => inPhase(i) && i.phase === phase.id);
-		if (opts.hideEmptyPhases && !items.length && !ghosts.some((g) => g.item.phase === phase.id)) continue;
+		if ((opts.hideEmptyPhases || print) && !items.length && !ghosts.some((g) => g.item.phase === phase.id)) continue;
 		if (phase.collapsed) {
 			groups.push({ kind: "phase", key: phase.id, phase, items, collapsed: true, marks: summaryMarks(phase, items, on("progress")) });
 			continue;
@@ -313,21 +306,16 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 		});
 
 		// Horizontal geometry first; rows come from packing the full footprint (mark + outside label).
-		const clean = !!opts.clean;
-		const onlyTask = group.kind === "phase" && group.items.filter((i) => i.type === "task" && !i.buffer && !i.dropped).length === 1;
 		const pre = sorted.map((mark) => {
 			const item = mark.item;
 			const [s, e] = itemDays(item);
 			const done = mark.kind === "item" && isDone(item);
-			const dated = opts.datedLabels && mark.kind === "item" && (item.type === "milestone" || item.type === "deadline" || item.type === "event");
-			let label = journal || (flat && mark.kind !== "summary") ? "" : (done ? "✓ " : "") + (item.title || "Untitled") + (dated ? ` · ${formatDay(s, false)}` : "");
-			if (clean && (mark.kind === "ghost" || mark.kind === "decision")) label = "";
-			else if (clean && label && mark.kind === "item" && item.type === "task" && !item.buffer && onlyTask && group.phase && repeatsPhase(item.title, group.phase.name))
-				label = `${formatDay(s, false)} to ${formatDay(e, false)}`;
-			const badge = item.type === "milestone" && !!label && !clean;
-			const weight = item.type === "deadline" || item.type === "location" || item.type === "milestone" || badge ? 600 : 500;
+			const dated = (opts.datedLabels || print) && mark.kind === "item" && (item.type === "milestone" || item.type === "deadline" || item.type === "event");
+			const label = journal || (flat && mark.kind !== "summary") ? "" : (done ? "✓ " : "") + (item.title || "Untitled") + (dated ? ` · ${formatDay(s, false)}` : "");
+			const badge = item.type === "milestone" && !!label && !print;
+			const weight = item.type === "deadline" || item.type === "location" || badge ? 600 : 500;
 			// Milestone labels sit in a tinted badge: reserve its padding.
-			let labelW = label ? opts.measure(label, weight, g.fontSize) + (badge ? MILESTONE_BADGE_PAD * 2 : 0) : 0;
+			const labelW = label ? opts.measure(label, weight, g.fontSize) + (badge ? MILESTONE_BADGE_PAD * 2 : 0) : 0;
 			let x0: number, x1: number, labelX: number, labelInside = false, labelAnchor: "start" | "end" = "start";
 			if (item.type === "task" || item.type === "location") {
 				x0 = xOf(s);
@@ -342,12 +330,6 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 				const r = item.type === "milestone" ? 9 : 6;
 				x0 = cx - r;
 				x1 = cx + r;
-				labelX = x1 + g.labelGap;
-			}
-			// Paper mode: a buffer only keeps its name when it fits inside the bar; the hatching says the rest.
-			if (clean && item.type === "task" && item.buffer && !labelInside && label) {
-				label = "";
-				labelW = 0;
 				labelX = x1 + g.labelGap;
 			}
 			if (!labelInside && labelX + labelW + 4 > width) {
@@ -371,7 +353,7 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 			phase: group.phase,
 			title:
 				group.kind === "locations" ? "Where" :
-				group.kind === "keydates" ? "Key dates" :
+				group.kind === "keydates" ? (print && group.marks.every((m) => m.kind === "item" && m.item.type === "deadline") ? "Deadlines" : "Key dates") :
 				group.kind === "journal" ? "Journal" :
 				group.kind === "unassigned" ? "Other" : group.phase!.name,
 			subtitle: group.collapsed ? `Folded · ${group.items.length} item${group.items.length === 1 ? "" : "s"}` : laneSubtitle(group.kind, group.items, project),

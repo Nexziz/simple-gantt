@@ -319,5 +319,13 @@ t("import: dates before the project start widen its period", () => {
 	assert.equal(p.start, "2026-06-01");
 });
 
+t("print layout: Plan B's decision date goes into its label; deadlines get their own row", () => {
+	const measure = (s: string) => s.length * 6;
+	const lay = computeLayout(cloneProject(SAMPLE), { pxPerDay: 2, showEmptyLanes: false, measure, print: true, today });
+	assert.ok(!lay.placed.some((p) => p.kind === "decision"), "no separate decision marker on paper");
+	assert.ok(lay.placed.some((p) => p.kind === "ghost" && /^Plan B, decide by 8 Jan · /.test(p.item.title)), "the decision date is in the Plan B label");
+	assert.ok(lay.placed.some((p) => p.item.type === "milestone" && / · 15 Jan$/.test(p.label)), "milestone labels carry their date");
+});
+
 console.log(failed ? `\n${failed} failed` : `\nall nudge/journal/link/feature tests passed`);
 if (failed) process.exit(1);

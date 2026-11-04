@@ -1,6 +1,6 @@
 import { formatDay, toDay } from "./dates";
 import { Lane, Layout, computeLayout } from "./layout";
-import { NS, PaintOptions, buildLegend, formatPeriod, makeMeasure, nest, paintBody, paintHeader, paintLabels, svgEl, text } from "./render";
+import { NS, PaintOptions, formatPeriod, makeMeasure, nest, paintBody, paintHeader, paintLabels, svgEl, text } from "./render";
 import { PRINT_THEME, Theme } from "./theme";
 import type { Project } from "./types";
 
@@ -15,9 +15,10 @@ export interface PrintOptions {
 }
 
 /**
- * The timeline laid out for A4 landscape paper: a title block, the chart with compact rows and dates on
- * milestones and deadlines, a legend and a footer. When the rows don't fit on one sheet they
- * continue on the next, each page repeating the date header and the Key dates row.
+ * The timeline laid out for A4 landscape paper, as plain as possible: a title block and the chart, with dates on
+ * milestones and deadlines and each deadline's line running through every phase. No legend or summaries: the
+ * picture explains itself. When the rows don't fit on one sheet they continue on the next, each page repeating
+ * the date header and the deadlines row.
  */
 export function renderPrintPages(project: Project, opts: PrintOptions = {}): SVGSVGElement[] {
 	const theme = opts.theme ?? PRINT_THEME;
@@ -26,30 +27,39 @@ export function renderPrintPages(project: Project, opts: PrintOptions = {}): SVG
 	const M = 28;
 	const labelWidth = 190;
 	const timelineW = W - 2 * M - labelWidth;
-	const probe = computeLayout(project, { pxPerDay: 1, showEmptyLanes: false, measure, density: "print", hideEmptyPhases: true });
-	const days = probe.viewEnd - probe.viewStart + 1;
-	const layout = computeLayout(project, { pxPerDay: timelineW / days, showEmptyLanes: false, measure, density: "print", datedLabels: true, hideEmptyPhases: true, clean: true });
-	const paint: PaintOptions = { theme, measure, interactive: false, print: true, today: null, plan: opts.compare ? project.baseline : null };
-	const legend = () => buildLegend(project, theme, measure, W - 2 * M, !!(opts.compare && project.baseline), true, true);
-	const legendH = legend().height;
-	// The footer sits in the bottom margin, so it takes no room from the chart.
-	const title1 = 50, titleN = 26, gap = 10;
-	const room = (titleH: number) => H - 2 * M - titleH - layout.headerH - gap - legendH;
+	const title1 = 50, titleN = 26;
+	const compare = !!(opts.compare && project.baseline);
+	const room = (titleH: number, headerH: number) => H - 2 * M - titleH - headerH;
+	// Roomier rows when the plan fits that way; tight print rows otherwise.
+	let layout = computeLayout(project, { pxPerDay: 1, showEmptyLanes: false, measure, density: "print", print: true });
+	const days = layout.viewEnd - layout.viewStart + 1;
+	for (const density of ["compact", "print"] as const) {
+		layout = computeLayout(project, { pxPerDay: timelineW / days, showEmptyLanes: false, measure, density, print: true });
+		if (layout.bodyH <= room(title1, layout.headerH)) break;
+	}
+	// A plan that fits with room to spare gets airier rows, so the chart fills the sheet instead of leaving it half empty.
+	const spare = room(title1, layout.headerH) / layout.bodyH;
+	if (spare > 1.04) {
+		const f = Math.min(1.5, spare * 0.99);
+		const g = layout.g;
+		const geometry = { ...g, rowPitch: g.rowPitch * f, stripPitch: g.stripPitch * f, lanePad: g.lanePad * f, minLaneH: g.minLaneH * f };
+		layout = computeLayout(project, { pxPerDay: timelineW / days, showEmptyLanes: false, measure, geometry, print: true });
+	}
+	const paint: PaintOptions = { theme, measure, interactive: false, print: true, today: null, plan: compare ? project.baseline : null };
 	// A little too tall still fits on one sheet, slightly smaller; only much longer plans continue on a second page.
 	const SHRINK = 0.8;
 
-	// Split the rows into pages: Key dates on every page, then as many lanes as fit.
+	// Split the rows into pages: the deadlines (Key dates) row on every page, then as many lanes as fit.
 	const pages: Lane[][] = [];
 	const total = layout.lanes.reduce((s, l) => s + l.height, 0);
-	const chrome = layout.headerH;
-	if (total <= room(title1) || (chrome + total) * SHRINK <= chrome + room(title1)) pages.push(layout.lanes);
+	if ((layout.headerH + total) * SHRINK <= layout.headerH + room(title1, layout.headerH)) pages.push(layout.lanes);
 	else {
 		const pinned = layout.lanes.filter((l) => l.kind === "keydates");
 		const pinnedH = pinned.reduce((s, l) => s + l.height, 0);
 		let page: Lane[] = [...pinned];
 		let used = pinnedH;
 		for (const lane of layout.lanes.filter((l) => l.kind !== "keydates")) {
-			const avail = room(pages.length ? titleN : title1);
+			const avail = room(pages.length ? titleN : title1, layout.headerH);
 			if (page.length > pinned.length && used + lane.height > avail) {
 				pages.push(page);
 				page = [...pinned];
@@ -74,35 +84,26 @@ export function renderPrintPages(project: Project, opts: PrintOptions = {}): SVG
 			const meta = [project.subtitle, project.author].filter(Boolean).join("  ·  ");
 			if (meta) text(svg, M, M + 33, meta, { fill: theme.inkSecondary, "font-size": 11.5 });
 			text(svg, W - M, M + 12, formatPeriod(toDay(project.start), toDay(project.end)), { fill: theme.ink, "font-size": 13, "font-weight": 600, "text-anchor": "end" });
-			text(svg, W - M, M + 33, `Updated ${printed}`, { fill: theme.inkMuted, "font-size": 10.5, "text-anchor": "end" });
+			const note = compare ? `Dashed outlines: the plan saved ${formatDay(toDay(project.baseline!.saved))} · updated ${printed}` : `Updated ${printed}`;
+			text(svg, W - M, M + 33, note, { fill: theme.inkMuted, "font-size": 10.5, "text-anchor": "end" });
 		} else {
 			text(svg, M, M + 10, `${name} (continued)`, { fill: theme.ink, "font-size": 13, "font-weight": 600 });
 		}
 
-		// Chart
+		// Chart: the header, the phases and the deadlines' lines. Nothing the picture already says twice.
 		const slice = sliceLayout(layout, lanes);
 		const chartH = layout.headerH + slice.bodyH;
-		const avail = H - 2 * M - titleH - gap - legendH;
-		const scale = Math.min(1, avail / chartH);
+		const scale = Math.min(1, room(titleH, 0) / chartH);
 		const chartW = labelWidth + layout.width;
 		const chart = svgEl("g", { transform: `translate(${M + (chartW * (1 - scale)) / 2}, ${M + titleH}) scale(${scale})` }, svg);
-		const corner = svgEl("g", {}, chart);
-		svgEl("rect", { x: 0, y: 0, width: labelWidth, height: layout.headerH, fill: theme.surface }, corner);
-		text(corner, 14, layout.headerH - layout.g.monthRowH / 2 - (layout.showWeeks ? layout.g.weekRowH : 0), "PHASE", {
-			fill: theme.inkMuted, "font-size": 9.5, "font-weight": 700, "letter-spacing": "0.08em",
-		});
-		svgEl("line", { x1: 0, x2: labelWidth, y1: layout.headerH - 0.5, y2: layout.headerH - 0.5, stroke: theme.axis }, corner);
-		svgEl("line", { x1: labelWidth - 0.5, x2: labelWidth - 0.5, y1: 0, y2: layout.headerH, stroke: theme.axis }, corner);
+		svgEl("rect", { x: 0, y: 0, width: labelWidth, height: layout.headerH, fill: theme.surface }, chart);
+		svgEl("line", { x1: 0, x2: labelWidth, y1: layout.headerH - 0.5, y2: layout.headerH - 0.5, stroke: theme.axis }, chart);
+		svgEl("line", { x1: labelWidth - 0.5, x2: labelWidth - 0.5, y1: 0, y2: layout.headerH, stroke: theme.axis }, chart);
 		nest(chart, paintHeader(layout, paint), labelWidth, 0);
 		nest(chart, paintLabels(slice, labelWidth, paint), 0, layout.headerH);
 		nest(chart, paintBody(slice, paint), labelWidth, layout.headerH);
 		svgEl("rect", { x: 0.5, y: 0.5, width: chartW - 1, height: chartH - 1, rx: 6, fill: "none", stroke: theme.axis }, chart);
 
-		// Legend and footer
-		const lg = legend().node;
-		lg.setAttribute("transform", `translate(${M}, ${M + titleH + chartH * scale + gap})`);
-		svg.appendChild(lg);
-		text(svg, M, H - M / 2, `${name} · ${printed}`, { fill: theme.inkMuted, "font-size": 8.5 });
 		if (pages.length > 1) text(svg, W - M, H - M / 2, `Page ${i + 1} of ${pages.length}`, { fill: theme.inkMuted, "font-size": 8.5, "text-anchor": "end" });
 		return svg;
 	});

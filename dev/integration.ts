@@ -2,6 +2,7 @@
 import { App, notices } from "obsidian";
 import SimpleGanttPlugin from "../src/main";
 import { isOn } from "../src/core/features";
+import { renderPrintPages } from "../src/core/print";
 
 const log: string[] = [];
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -497,6 +498,13 @@ function check(cond: unknown, msg: string) {
 		board["openProjectMenu"]();
 		check([...document.querySelectorAll(".sg-menu .sg-menu-item")].some((b) => b.textContent?.includes("Timeline B - dissertation only")), "…and appears in the timeline switcher");
 		key("Escape");
+		// The printout says everything once: no legend, no summaries, each deadline named a single time.
+		const printProject = JSON.parse(JSON.stringify(proj()));
+		const deadlineTitles = printProject.items.filter((i: any) => i.type === "deadline" && !i.dropped).map((i: any) => i.title);
+		const sheet = renderPrintPages(printProject, { today: 20761 })[0];
+		const words = [...sheet.querySelectorAll("text")].map((t) => t.textContent ?? "");
+		check(!words.some((w) => /^(PHASES|KEY|DEADLINES|PHASE)$/.test(w) || /\d+ items? ·/.test(w)), "the printout has no legend, deadline band or item counts");
+		check(deadlineTitles.length > 0 && deadlineTitles.every((d: string) => words.filter((w) => w.startsWith(d)).length === 1), `each deadline is named once (${deadlineTitles.length} deadlines)`);
 		log.push(`notices: ${JSON.stringify(notices)}`);
 		(window as any).__note = await app.vault.read(file);
 	} catch (e) {
