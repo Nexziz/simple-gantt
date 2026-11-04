@@ -18,6 +18,7 @@ const TODAY = "2026-10-26";
 document.body.classList.add(dark ? "theme-dark" : "theme-light");
 
 if (mode === "print") {
+	document.body.classList.add("print-preview");
 	// The A4 landscape pages, one under the other (?mode=print&big=1 makes the plan long enough for two pages).
 	const project = cloneProject(SAMPLE);
 	if (params.get("big")) {

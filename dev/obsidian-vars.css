@@ -82,5 +82,5 @@ html, body { height: 100%; }
 .mock-side button.mod-cta { background: var(--interactive-accent); border-color: var(--interactive-accent); color: #fff; font-weight: 600; }
 .mock-side select { font: inherit; }
 /* A4 pages in the preview (?mode=print) */
-body:has(.print-page) { background: #8a8a8a; padding: 20px; display: flex; flex-direction: column; gap: 20px; align-items: center; }
+body.print-preview { background: #8a8a8a; padding: 20px; display: flex; flex-direction: column; gap: 20px; align-items: center; }
 .print-page { flex-shrink: 0; box-shadow: 0 4px 18px rgba(0,0,0,.35); }
