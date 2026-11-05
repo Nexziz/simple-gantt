@@ -1,5 +1,5 @@
 import { formatDay, toDay } from "./dates";
-import { COMPACT, Lane, Layout, PRINT_GEOMETRY, computeLayout } from "./layout";
+import { COMPACT, Geometry, Lane, Layout, PRINT_GEOMETRY, computeLayout } from "./layout";
 import { NS, PaintOptions, formatPeriod, makeMeasure, nest, paintBody, paintHeader, paintLabels, svgEl, text } from "./render";
 import { PRINT_THEME, Theme } from "./theme";
 import type { Project } from "./types";
@@ -30,25 +30,32 @@ export function renderPrintPages(project: Project, opts: PrintOptions = {}): SVG
 	const title1 = 50, titleN = 26;
 	const compare = !!(opts.compare && project.baseline);
 	const room = (titleH: number, headerH: number) => H - 2 * M - titleH - headerH;
-	// Roomier rows when the plan fits that way; tight print rows otherwise.
+	// Rows as roomy as the sheet allows, so the step from a bar to the next one (and its arrow) is easy to follow.
 	let layout = computeLayout(project, { pxPerDay: 1, showEmptyLanes: false, measure, density: "print", print: true });
 	const days = layout.viewEnd - layout.viewStart + 1;
-	// Slim bars with room between the rows, so the arrows between steps are easy to follow.
-	for (const geometry of [{ ...COMPACT, barH: 18, stripH: 16 }, PRINT_GEOMETRY]) {
-		layout = computeLayout(project, { pxPerDay: timelineW / days, showEmptyLanes: false, measure, geometry, print: true });
-		if (layout.bodyH <= room(title1, layout.headerH)) break;
+	const sized = (geometry: Geometry) => computeLayout(project, { pxPerDay: timelineW / days, showEmptyLanes: false, measure, geometry, print: true });
+	const base: Geometry = { ...COMPACT, barH: 17, stripH: 16, stripPitch: 24, lanePad: 6, minLaneH: 40, labelGap: 7, packGap: 10 };
+	// The chart may be scaled down a little (text stays readable) to keep the rows roomy.
+	const MIN_SCALE = 0.9;
+	const chartRoom = H - 2 * M - title1;
+	let fits = false;
+	for (let rowPitch = 48; rowPitch >= 30 && !fits; rowPitch -= 1) {
+		layout = sized({ ...base, rowPitch });
+		fits = (layout.headerH + layout.bodyH) * MIN_SCALE <= chartRoom;
 	}
-	// A plan that fits with room to spare gets airier rows, so the chart fills the sheet instead of leaving it half empty.
+	if (!fits) layout = sized(PRINT_GEOMETRY);
+	// A plan that fits with room to spare gets more padding around each phase, so the chart fills the sheet.
 	const spare = room(title1, layout.headerH) / layout.bodyH;
-	if (spare > 1.04) {
-		const f = Math.min(1.5, spare * 0.99);
+	if (fits && spare > 1.04) {
 		const g = layout.g;
-		const geometry = { ...g, rowPitch: g.rowPitch * f, stripPitch: g.stripPitch * f, lanePad: g.lanePad * f, minLaneH: g.minLaneH * f };
-		layout = computeLayout(project, { pxPerDay: timelineW / days, showEmptyLanes: false, measure, geometry, print: true });
+		const f = Math.min(2.5, 1 + (spare - 1) * (layout.bodyH / layout.lanes.reduce((n, l) => n + 2 * g.lanePad, 1)));
+		const roomier = sized({ ...g, lanePad: g.lanePad * f, minLaneH: g.minLaneH * Math.min(f, 1.4) });
+		if (roomier.bodyH <= room(title1, layout.headerH)) layout = roomier;
 	}
-	const paint: PaintOptions = { theme, measure, interactive: false, print: true, today: null, plan: compare ? project.baseline : null };
+	// The Today line shows where the plan stands on the day it's printed.
+	const paint: PaintOptions = { theme, measure, interactive: false, print: true, today: opts.today ?? null, plan: compare ? project.baseline : null };
 	// A little too tall still fits on one sheet, slightly smaller; only much longer plans continue on a second page.
-	const SHRINK = 0.8;
+	const SHRINK = 0.85;
 
 	// Split the rows into pages: the deadlines (Key dates) row on every page, then as many lanes as fit.
 	const pages: Lane[][] = [];

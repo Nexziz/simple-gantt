@@ -524,6 +524,11 @@ function check(cond: unknown, msg: string) {
 		const bends = (key: string) => (sheetA.querySelector(`.sg-link[data-link="${key}"] .sg-link-line`)?.getAttribute("d")?.match(/Q/g) ?? []).length;
 		const drawn = ["e1 em", "rd fd", "fd rv", "rv pf"].filter((k) => sheetA.querySelector(`.sg-link[data-link="${k}"]`));
 		check(drawn.length === 4 && bends("e1 em") === 0 && bends("fd rv") === 0, "an arrow to a step that starts under the previous one drops straight down");
+		const dropLen = (() => {
+			const nums = (sheetA.querySelector('.sg-link[data-link="e1 em"] .sg-link-line')?.getAttribute("d") ?? "").match(/-?[\d.]+/g)?.map(Number) ?? [];
+			return nums.length >= 4 ? Math.abs(nums[3] - nums[1]) : 0;
+		})();
+		check(dropLen >= 18, `rows on paper leave room for a readable arrow between a task and its milestone (${Math.round(dropLen)}px)`);
 		check(bends("rd fd") <= 1 && bends("rv pf") <= 1, `an arrow to a step that starts further out leaves from the side, then goes down (${bends("rd fd")}, ${bends("rv pf")} bends)`);
 		log.push(`notices: ${JSON.stringify(notices)}`);
 		(window as any).__note = await app.vault.read(file);

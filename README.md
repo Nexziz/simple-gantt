@@ -85,7 +85,7 @@ The overview panel shows your next deadline, what's on now and what's coming up.
 ![The overview panel in the sidebar](https://raw.githubusercontent.com/Nexziz/simple-gantt/main/docs/gifs/sidebar.gif)
 
 ### Print it on A4
-**Export → PDF for printing** makes a print-ready A4 landscape PDF and opens it. It's kept as plain as possible: deadlines in red in one row at the top, each with a line through the whole chart; milestones as bold diamonds with their dates; and no legend or summaries, because the picture explains itself. The rows spread out to fill the sheet, and a long plan continues on a second page with the dates and deadlines repeated.
+**Export → PDF for printing** makes a print-ready A4 landscape PDF and opens it. It's kept as plain as possible: deadlines in red in one row at the top, each with a line through the whole chart; milestones as bold diamonds with their dates; each task's dates in small grey text after its name; a Today line; and no legend or summaries, because the picture explains itself. Rows are spaced as generously as the sheet allows, so every arrow is easy to follow. The rows spread out to fill the sheet, and a long plan continues on a second page with the dates and deadlines repeated.
 
 ![An A4 landscape printout](https://raw.githubusercontent.com/Nexziz/simple-gantt/main/docs/images/24-print-a4.png)
 

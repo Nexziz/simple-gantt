@@ -8,7 +8,7 @@ export const G = {
 	yearRowH: 24,
 	monthRowH: 30,
 	weekRowH: 22,
-	rowPitch: 38,
+	rowPitch: 44,
 	barH: 24,
 	stripPitch: 30,
 	stripH: 22,
@@ -26,7 +26,7 @@ export const COMPACT: Geometry = {
 	yearRowH: 22,
 	monthRowH: 26,
 	weekRowH: 20,
-	rowPitch: 28,
+	rowPitch: 32,
 	barH: 20,
 	stripPitch: 24,
 	stripH: 18,
@@ -52,6 +52,17 @@ export const PRINT_GEOMETRY: Geometry = {
 	packGap: 8,
 	fontSize: 11.5,
 };
+
+/** Space between a label and its grey note. */
+export const NOTE_GAP = 6;
+
+/** "10 Nov – 18 Dec", "3–14 May": dates without the year (the date header shows it). */
+export function shortRange(s: number, e: number): string {
+	if (s === e) return formatDay(s, false);
+	const a = formatDay(s, false), b = formatDay(e, false);
+	const [ad, am] = a.split(" "), [bd, bm] = b.split(" ");
+	return am === bm ? `${ad}–${bd} ${bm}` : `${a} – ${b}`;
+}
 
 /** Horizontal padding inside a milestone's label badge. */
 export const MILESTONE_BADGE_PAD = 9;
@@ -125,6 +136,8 @@ export interface Placed {
 	labelX: number;
 	labelInside: boolean;
 	labelAnchor: "start" | "end";
+	/** Extra detail after the label in small grey text (on paper: a task's dates). Included in labelW. */
+	note?: string;
 	/** A buffer drawn on its task's row: the task's id. Its label sits above it. */
 	attachedTo?: string;
 	/** Ends that join another bar (a buffer and its task) are drawn square. */
@@ -319,8 +332,12 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 			const label = journal || (flat && mark.kind !== "summary") ? "" : (done ? "✓ " : "") + (item.title || "Untitled") + (dated ? ` · ${formatDay(s, false)}` : "");
 			const badge = item.type === "milestone" && !!label && !print;
 			const weight = item.type === "deadline" || item.type === "location" || badge ? 600 : 500;
+			// On paper a task's dates follow its name in small grey text (there's no hovering on paper).
+			const note = print && label && mark.kind === "item" && item.type === "task" && !item.buffer ? shortRange(s, e) : "";
 			// Milestone labels sit in a tinted badge: reserve its padding.
-			const labelW = label ? opts.measure(label, weight, g.fontSize) + (badge ? MILESTONE_BADGE_PAD * 2 : 0) : 0;
+			const labelW = label
+				? opts.measure(label, weight, g.fontSize) + (badge ? MILESTONE_BADGE_PAD * 2 : 0) + (note ? NOTE_GAP + opts.measure(note, 400, g.fontSize - 1.5) : 0)
+				: 0;
 			let x0: number, x1: number, labelX: number, labelInside = false, labelAnchor: "start" | "end" = "start";
 			if (item.type === "task" || item.type === "location") {
 				x0 = xOf(s);
@@ -343,7 +360,7 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 			}
 			const from = labelInside ? x0 : Math.min(x0, labelAnchor === "end" ? labelX - labelW : x0);
 			const to = labelInside ? x1 : Math.max(x1, labelAnchor === "start" ? labelX + labelW : x1);
-			return { mark, item, s, e, label, labelW, x0, x1, labelX, labelInside, labelAnchor, from, to };
+			return { mark, item, s, e, label, note, labelW, x0, x1, labelX, labelInside, labelAnchor, from, to };
 		});
 		// Buffer time sits on the row of the task it belongs to (one it overlaps, or follows within a week),
 		// joined to the bar like an extension of it, with its name above. A Plan B that runs past the end of
@@ -373,6 +390,8 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 			const labelSize = g.fontSize - 1.5;
 			for (const [i, j] of hostOf) {
 				const b = pre[i], t = pre[j];
+				// On paper a buffer's caption says when it is.
+				if (print && b.label && b.mark.kind === "item") b.label = `${b.label} · ${shortRange(b.s, b.e)}`;
 				b.labelW = b.label ? opts.measure(b.label, 500, labelSize) : 0;
 				b.labelInside = false;
 				// Over the part that shows: a Plan B under its task only shows past the task's end.
@@ -463,6 +482,7 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 				cy: contentTop + rowTop[rows[i]] + markH / 2,
 				color: group.phase?.color ?? (p.item.type === "location" ? null : phaseColor(p.item.phase ?? parent?.phase)),
 				label: p.label,
+				note: p.note || undefined,
 				labelW: p.labelW,
 				labelX: p.labelX,
 				labelInside: p.labelInside,

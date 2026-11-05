@@ -1,5 +1,5 @@
 import { MONTHS_LONG, MONTHS_SHORT, dayFromYmd, formatDay, monthEnd, toDay, weekday, ymd } from "./dates";
-import { Lane, Layout, MILESTONE_BADGE_PAD, Measure, Placed, computeLayout } from "./layout";
+import { Lane, Layout, MILESTONE_BADGE_PAD, Measure, NOTE_GAP, Placed, computeLayout } from "./layout";
 import { PRINT_THEME, Theme, inkOnFill } from "./theme";
 import { earliestAfter } from "./links";
 import { Mood, Project, isDone, isRangeType } from "./types";
@@ -123,6 +123,9 @@ export function paintHeader(layout: Layout, o: PaintOptions): SVGSVGElement {
 	// Year segments; the label sticks to the left edge of the visible part of its year.
 	const [y0] = ymd(layout.viewStart);
 	const [y1] = ymd(layout.viewEnd);
+	// Where the Today pill sits, so a year label can step aside for it.
+	const todayX = o.today != null && o.today >= layout.viewStart && o.today <= layout.viewEnd ? layout.xOf(o.today) + layout.pxPerDay / 2 : null;
+	const pillW = o.measure("Today", 600, 10) + 12;
 	for (let year = y0; year <= y1; year++) {
 		const from = Math.max(layout.viewStart, dayFromYmd(year, 0, 1));
 		const to = Math.min(layout.viewEnd + 1, dayFromYmd(year + 1, 0, 1));
@@ -130,8 +133,12 @@ export function paintHeader(layout: Layout, o: PaintOptions): SVGSVGElement {
 		const xEnd = layout.xOf(to);
 		if (year !== y0) svgEl("line", { x1: x + 0.5, x2: x + 0.5, y1: 0, y2: layout.headerH, stroke: theme.axis }, svg);
 		const tw = o.measure(String(year), 700, 11) + 4;
-		const lx = Math.min(Math.max(x, v0) + 8, xEnd - tw - 8);
-		text(svg, Math.max(x + 8, lx), layout.g.yearRowH / 2 + 1, String(year), {
+		let lx = Math.max(x + 8, Math.min(Math.max(x, v0) + 8, xEnd - tw - 8));
+		if (todayX !== null && lx < todayX + pillW / 2 + 4 && lx + tw > todayX - pillW / 2 - 4) {
+			const after = todayX + pillW / 2 + 6;
+			if (after + tw < xEnd - 4) lx = after;
+		}
+		text(svg, lx, layout.g.yearRowH / 2 + 1, String(year), {
 			fill: theme.ink, "font-size": 11, "font-weight": 700, "letter-spacing": "0.06em",
 		});
 	}
@@ -468,9 +475,16 @@ function paintItem(parent: Element, p: Placed, layout: Layout, o: PaintOptions, 
 			svgEl("rect", { x: p.x0, y: ty, width: w, height: 2.5, rx: 1.25, fill: color, opacity: 0.22, "pointer-events": "none" }, g);
 			svgEl("rect", { x: p.x0, y: ty, width: (w * prog) / 100, height: 2.5, rx: 1.25, fill: color, "pointer-events": "none" }, g);
 		}
-		text(g, p.labelX, p.cy, p.label, {
+		const t = text(g, p.labelX, p.cy, p.label, {
 			...labelAttrs, ...(p.labelInside ? {} : halo(theme)), fill: p.labelInside ? (p.color ? inkOnFill(p.color) : "#ffffff") : theme.ink,
 		});
+		if (p.note) {
+			const n = svgEl("tspan", {
+				dx: NOTE_GAP, "font-size": layout.g.fontSize - 1.5, "font-weight": 400,
+				fill: p.labelInside ? (p.color ? inkOnFill(p.color) : "#ffffff") : theme.inkMuted, "fill-opacity": p.labelInside ? 0.8 : 1,
+			}, t);
+			n.textContent = p.note;
+		}
 		if (o.interactive && w >= 14) {
 			const hw = Math.min(8, w / 3);
 			svgEl("rect", { x: p.x0 - 2, y: top, width: hw + 2, height: layout.g.barH, fill: "transparent", class: "sg-handle", "data-part": "start" }, g);
