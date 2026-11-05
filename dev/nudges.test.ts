@@ -327,5 +327,25 @@ t("print layout: Plan B's decision date goes into its label; deadlines get their
 	assert.ok(lay.placed.some((p) => p.item.type === "milestone" && / · 15 Jan$/.test(p.label)), "milestone labels carry their date");
 });
 
+t("buffers sit on their task's row, joined to it, with the task's label moved past them", () => {
+	const p = normalizeProject({
+		start: "2026-11-01", end: "2027-04-30",
+		phases: [{ id: "fw", name: "Firmware" }],
+		items: [
+			{ id: "r1", type: "task", title: "Firmware extraction", phase: "fw", start: "2026-12-01", end: "2027-01-18" },
+			{ id: "rb", type: "task", buffer: true, title: "Christmas break", phase: "fw", start: "2026-12-21", end: "2027-01-06" },
+			{ id: "s1", type: "task", title: "Write up", phase: "fw", start: "2027-02-01", end: "2027-02-20" },
+			{ id: "sb", type: "task", buffer: true, title: "Buffer", phase: "fw", start: "2027-02-21", end: "2027-02-27", after: ["s1"] },
+		],
+	});
+	const lay = computeLayout(p, { pxPerDay: 3, showEmptyLanes: false, measure: (s: string) => s.length * 6 });
+	const at = (id: string) => lay.placed.find((x) => x.item.id === id)!;
+	assert.equal(at("rb").cy, at("r1").cy, "a buffer inside a task shares its row");
+	assert.equal(at("sb").cy, at("s1").cy, "a buffer right after a task shares its row");
+	assert.equal(at("rb").attachedTo, "r1");
+	assert.ok(at("sb").squareLeft && at("s1").squareRight, "the two bars join with square ends");
+	assert.ok(at("s1").labelInside || at("s1").labelX >= at("sb").x1, "the task's own label doesn't sit on the buffer");
+});
+
 console.log(failed ? `\n${failed} failed` : `\nall nudge/journal/link/feature tests passed`);
 if (failed) process.exit(1);

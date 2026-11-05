@@ -438,11 +438,18 @@ function paintItem(parent: Element, p: Placed, layout: Layout, o: PaintOptions, 
 
 	if (it.type === "task" && it.buffer) {
 		const w = p.x1 - p.x0;
-		svgEl("rect", {
-			x: p.x0 + 0.5, y: top + 0.5, width: Math.max(2, w - 1), height: layout.g.barH - 1, rx: 6,
-			fill: fills.buffer(color), stroke: color, "stroke-opacity": 0.55, class: "sg-mark", "data-part": "body",
-		}, g);
-		text(g, p.labelX, p.cy, p.label, { ...labelAttrs, ...halo(theme), fill: theme.inkSecondary, "font-style": "italic" });
+		const h = layout.g.barH;
+		const d = barPath(p.x0 + (p.squareLeft ? 0 : 0.5), top + 0.5, Math.max(2, w - (p.squareLeft ? 0 : 0.5) - (p.squareRight ? 0 : 0.5)), h - 1, 6, !p.squareLeft, !p.squareRight);
+		// An opaque base, so a buffer inside its task's bar reads as a hatched stretch of it.
+		if (p.attachedTo) svgEl("path", { d, fill: theme.surface, "pointer-events": "none" }, g);
+		svgEl("path", { d, fill: fills.buffer(color), stroke: color, "stroke-opacity": 0.7, class: "sg-mark", "data-part": "body" }, g);
+		if (p.attachedTo) {
+			// Its name sits just above it, like a caption.
+			text(g, p.labelX, top - layout.g.fontSize / 2 - 1.5, p.label, {
+				...labelAttrs, ...halo(theme), "text-anchor": p.labelAnchor, "font-size": layout.g.fontSize - 1.5,
+				fill: theme.inkSecondary, "font-style": "italic",
+			});
+		} else text(g, p.labelX, p.cy, p.label, { ...labelAttrs, ...halo(theme), fill: theme.inkSecondary, "font-style": "italic" });
 		if (o.interactive && w >= 14) {
 			const hw = Math.min(8, w / 3);
 			svgEl("rect", { x: p.x0 - 2, y: top, width: hw + 2, height: layout.g.barH, fill: "transparent", class: "sg-handle", "data-part": "start" }, g);
@@ -451,7 +458,7 @@ function paintItem(parent: Element, p: Placed, layout: Layout, o: PaintOptions, 
 		if (o.interactive && layout.on("links")) connector(g, connectorX(p), p.cy, color, theme);
 	} else if (it.type === "task") {
 		const w = p.x1 - p.x0;
-		svgEl("rect", { x: p.x0, y: top, width: w, height: layout.g.barH, rx: Math.min(6, w / 2), fill: color, class: "sg-mark", "data-part": "body" }, g);
+		svgEl("path", { d: barPath(p.x0, top, w, layout.g.barH, Math.min(6, w / 2), !p.squareLeft, !p.squareRight), fill: color, class: "sg-mark", "data-part": "body" }, g);
 		const prog = Math.max(0, Math.min(100, it.progress ?? 0));
 		// Progress sits as a slim track just under the bar so it never fights the label.
 		if (layout.on("progress") && prog > 0 && prog < 100 && w > 12) {
@@ -526,6 +533,8 @@ function paintLinks(svg: SVGSVGElement, layout: Layout, o: PaintOptions): Pt | n
 			if (!pred || pred.item.dropped || succ.item.dropped) continue;
 			// On paper a link that runs through other phases is more clutter than help.
 			if (o.print && Math.abs(layout.lanes.indexOf(pred.lane) - layout.lanes.indexOf(succ.lane)) > 1) continue;
+			// …and so is one into a buffer that's drawn as part of its task's bar.
+			if (o.print && succ.attachedTo) continue;
 			const pts = routeLink(pred, succ, layout);
 			if (!pts) continue;
 			const bad = succ.startDay < earliestAfter(pred.item, succ.item);
@@ -569,9 +578,9 @@ type Pt = [number, number];
 
 /**
  * Orthogonal route for a finish-to-start link. It leaves from just under (or over) the end of the
- * predecessor, so it never crosses that item's label. Into a bar it runs straight into the start
- * (or drops onto the top edge when the bar starts right away). Milestones, deadlines and key dates
- * are always entered through their top (or bottom) point, which keeps a chain of steps compact.
+ * predecessor, so it never crosses that item's label, and drops onto the starting corner of the
+ * next bar, so a chain of steps reads as a staircase. Milestones, deadlines and key dates are
+ * entered through their top (or bottom) point.
  */
 function routeLink(pred: Placed, succ: Placed, layout: Layout): Pt[] | null {
 	const down = succ.cy > pred.cy;
@@ -601,12 +610,13 @@ function routeLink(pred: Placed, succ: Placed, layout: Layout): Pt[] | null {
 		if (clear && cx - ex >= 4) return [[ex, pred.cy], [cx, pred.cy], [cx, edge]];
 		return [[sx, sy], [sx, gap], [cx, gap], [cx, edge]];
 	}
-	if (tx - sx >= 12) return [[sx, sy], [sx, ty], [tx, ty]];
-
-	// The successor starts at or before our end: arrive on its near edge instead.
-	const cx = Math.max(sx, succ.x0 + 9);
-	if (cx === sx && cx <= succ.x1 - 6) return [[sx, sy], [sx, edge]];
-	if (cx <= succ.x1 - 6) return [[sx, sy], [sx, gap], [cx, gap], [cx, edge]];
+	// Into a bar: arrive from above (or below) on its starting corner, so a chain of steps reads as a staircase.
+	const cx = succ.x0 + Math.min(5, (succ.x1 - succ.x0) / 2);
+	const range: [number, number] = point(pred) ? [sx - 3, sx + 3] : [pred.x0 + 3, pred.x1 + 4];
+	// Starts under the predecessor (or right at its end): one straight drop.
+	if (cx >= range[0] && cx <= range[1]) return [[cx, sy], [cx, edge]];
+	// Starts later: down from the predecessor's end, across just above the successor, then down onto its corner.
+	if (cx > range[1]) return [[sx, sy], [sx, gap], [cx, gap], [cx, edge]];
 	// Fully backwards: come round through the gap and enter from the left.
 	return [[sx, sy], [sx, gap], [tx - 10, gap], [tx - 10, ty], [tx, ty]];
 }
@@ -758,6 +768,14 @@ function check(parent: Element, cx: number, cy: number, s: number, stroke: strin
 		d: `M${cx - s},${cy} L${cx - s * 0.3},${cy + s * 0.75} L${cx + s},${cy - s * 0.7}`,
 		fill: "none", stroke, "stroke-width": 1.6, "stroke-linecap": "round", "stroke-linejoin": "round", "pointer-events": "none",
 	}, parent);
+}
+
+/** A bar outline with rounded corners only on the ends that don't join another bar. */
+function barPath(x: number, y: number, w: number, h: number, r: number, roundLeft: boolean, roundRight: boolean): string {
+	const rl = roundLeft ? Math.min(r, w / 2, h / 2) : 0;
+	const rr = roundRight ? Math.min(r, w / 2, h / 2) : 0;
+	const x1 = x + w, y1 = y + h;
+	return `M${x + rl},${y} H${x1 - rr} Q${x1},${y} ${x1},${y + rr} V${y1 - rr} Q${x1},${y1} ${x1 - rr},${y1} H${x + rl} Q${x},${y1} ${x},${y1 - rl} V${y + rl} Q${x},${y} ${x + rl},${y} Z`;
 }
 
 /** How a deadline's rule is drawn: a quiet dashed line on screen, a clear one on paper. */

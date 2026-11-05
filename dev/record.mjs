@@ -197,22 +197,22 @@ const scenes = {
 		await d.wait(1800);
 	},
 	async drag(d) {
-		const c3 = await d.box('.sg-item[data-id="c3"] rect.sg-mark');
+		const c3 = await d.box('.sg-item[data-id="c3"] .sg-mark');
 		await d.caption("Drag a bar to move it, with date guides");
 		await d.drag({ x: c3.cx, y: c3.cy }, { x: c3.cx + 70, y: c3.cy }, { ms: 900, hold: 600 });
 		await d.wait(500);
-		const c2 = await d.box('.sg-item[data-id="c2"] rect.sg-mark');
+		const c2 = await d.box('.sg-item[data-id="c2"] .sg-mark');
 		await d.caption("Drag an edge to change how long it takes");
 		await d.drag({ x: c2.x + c2.width - 3, y: c2.cy }, { x: c2.x + c2.width + 45, y: c2.cy }, { ms: 700, hold: 600 });
 		await d.wait(500);
-		const b3 = await d.box('.sg-item[data-id="b3"] rect.sg-mark');
+		const b3 = await d.box('.sg-item[data-id="b3"] .sg-mark');
 		await d.caption("Hold Shift to move everything after it too");
 		await d.drag({ x: b3.cx, y: b3.cy }, { x: b3.cx + 60, y: b3.cy }, { shift: true, ms: 1000, hold: 900 });
 		await d.wait(1200);
 	},
 	async link(d) {
-		const c1 = await d.box('.sg-item[data-id="c1"] rect.sg-mark');
-		const c3 = await d.box('.sg-item[data-id="c3"] rect.sg-mark');
+		const c1 = await d.box('.sg-item[data-id="c1"] .sg-mark');
+		const c3 = await d.box('.sg-item[data-id="c3"] .sg-mark');
 		await d.caption("Drag the dot at the end of a bar onto what comes next");
 		await d.move(c1.cx, c1.cy, 500);
 		await d.wait(400);
@@ -220,7 +220,7 @@ const scenes = {
 		await d.drag({ x: dot.cx, y: dot.cy }, { x: c3.cx, y: c3.cy }, { ms: 1000, hold: 700 });
 		await d.wait(1200);
 		await d.caption("Linked items keep their order: move one and the next follows");
-		const moved = await d.box('.sg-item[data-id="c1"] rect.sg-mark');
+		const moved = await d.box('.sg-item[data-id="c1"] .sg-mark');
 		await d.drag({ x: moved.cx, y: moved.cy }, { x: moved.cx + 75, y: moved.cy }, { ms: 1200, hold: 900 });
 		await d.wait(1200);
 		await d.caption("Click a line to select it, then × to detach it");
@@ -241,12 +241,12 @@ const scenes = {
 		await d.caption("Select tool (V): drag a box over several items");
 		await d.click('[data-tool="select"]');
 		await d.wait(500);
-		const c1 = await d.box('.sg-item[data-id="c1"] rect.sg-mark');
-		const d2 = await d.box('.sg-item[data-id="d2"] rect.sg-mark');
+		const c1 = await d.box('.sg-item[data-id="c1"] .sg-mark');
+		const d2 = await d.box('.sg-item[data-id="d2"] .sg-mark');
 		await d.drag({ x: c1.x + c1.width + 330, y: c1.y - 12 }, { x: c1.x + 40, y: d2.y + d2.height - 4 }, { ms: 1000, hold: 500 });
 		await d.wait(700);
 		await d.caption("Drag one of them and they all move together", 64);
-		const c2 = await d.box('.sg-item[data-id="c2"] rect.sg-mark');
+		const c2 = await d.box('.sg-item[data-id="c2"] .sg-mark');
 		await d.drag({ x: c2.cx, y: c2.cy }, { x: c2.cx + 80, y: c2.cy }, { ms: 1000, hold: 700 });
 		await d.wait(600);
 		await d.caption("…or use the bar below: link them, tick them off, delete", 64);
@@ -290,7 +290,7 @@ const scenes = {
 		await d.caption("Critical path (C): the chain with the least slack before a deadline");
 		await d.click('[aria-label^="Critical path"]');
 		await d.wait(900);
-		const f1 = await d.box('.sg-item[data-id="f1"] rect.sg-mark');
+		const f1 = await d.box('.sg-item[data-id="f1"] .sg-mark');
 		await d.move(f1.cx, f1.cy, 800);
 		await d.wait(1800);
 		await d.click('[aria-label^="Critical path"]');
@@ -298,7 +298,7 @@ const scenes = {
 		await d.caption("Saved plan (B): see what moved since you made the plan");
 		await d.click('[aria-label^="Compare with the saved plan"]');
 		await d.wait(900);
-		const c1 = await d.box('.sg-item[data-id="c1"] rect.sg-mark');
+		const c1 = await d.box('.sg-item[data-id="c1"] .sg-mark');
 		await d.move(c1.cx, c1.cy, 800);
 		await d.wait(2200);
 	},
@@ -335,7 +335,7 @@ const scenes = {
 	},
 	async "menu-rename"(d) {
 		await d.caption("Right-click anything for its menu");
-		const c3 = await d.box('.sg-item[data-id="c3"] rect.sg-mark');
+		const c3 = await d.box('.sg-item[data-id="c3"] .sg-mark');
 		await d.move(c3.cx, c3.cy, 600);
 		await d.wait(300);
 		await d.page.mouse.click(c3.cx, c3.cy, { button: "right" });

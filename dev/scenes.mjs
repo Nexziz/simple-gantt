@@ -11,8 +11,8 @@ const only = process.argv[2];
 async function boxSelect(page, release) {
 	await page.click('[data-tool="select"]');
 	await page.mouse.move(0, 0);
-	const a = await page.locator('.sg-item[data-id="c1"] rect.sg-mark').boundingBox();
-	const b = await page.locator('.sg-item[data-id="d2"] rect.sg-mark').boundingBox();
+	const a = await page.locator('.sg-item[data-id="c1"] .sg-mark').boundingBox();
+	const b = await page.locator('.sg-item[data-id="d2"] .sg-mark').boundingBox();
 	const [x0, y0, x1, y1] = [a.x + a.width + 470, a.y - 12, a.x + 60, b.y + b.height - 6];
 	await page.mouse.move(x0, y0);
 	await page.mouse.down();
@@ -28,10 +28,10 @@ const scenes = {
 		await page.waitForTimeout(350);
 	},
 	async "04-edit-panel"(page) {
-		await page.click('.sg-item[data-id="a2"] rect.sg-mark');
+		await page.click('.sg-item[data-id="a2"] .sg-mark');
 		await page.waitForTimeout(500);
 		await page.locator(".sg-panel .sg-input").first().evaluate((el) => el.blur());
-		const box = await page.locator('.sg-item[data-id="b2"] rect.sg-mark').boundingBox();
+		const box = await page.locator('.sg-item[data-id="b2"] .sg-mark').boundingBox();
 		await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
 		await page.waitForTimeout(250);
 	},
@@ -83,10 +83,10 @@ const scenes = {
 		await page.waitForTimeout(300);
 	},
 	async "17-link-drag"(page) {
-		const bar = page.locator('.sg-item[data-id="d1"] rect.sg-mark');
+		const bar = page.locator('.sg-item[data-id="d1"] .sg-mark');
 		await bar.hover();
 		const dot = await page.locator('.sg-item[data-id="d1"] .sg-connector circle').first().boundingBox();
-		const target = await page.locator('.sg-item[data-id="e2"] rect.sg-mark').boundingBox();
+		const target = await page.locator('.sg-item[data-id="e2"] .sg-mark').boundingBox();
 		await page.mouse.move(dot.x + dot.width / 2, dot.y + dot.height / 2);
 		await page.mouse.down();
 		for (let i = 1; i <= 10; i++) await page.mouse.move(dot.x + (target.x + 30 - dot.x) * (i / 10), dot.y + (target.y + 10 - dot.y) * (i / 10));
@@ -123,7 +123,7 @@ const scenes = {
 	},
 	async "21-group-move"(page) {
 		await boxSelect(page, true);
-		const c = await page.locator('.sg-item[data-id="c2"] rect.sg-mark').boundingBox();
+		const c = await page.locator('.sg-item[data-id="c2"] .sg-mark').boundingBox();
 		await page.mouse.move(c.x + c.width / 2, c.y + c.height / 2);
 		await page.mouse.down();
 		for (let i = 1; i <= 8; i++) await page.mouse.move(c.x + c.width / 2 + i * 5, c.y + c.height / 2);
@@ -149,7 +149,7 @@ const scenes = {
 		await page.waitForTimeout(400);
 	},
 	async "14-ripple"(page) {
-		const box = await page.locator('.sg-item[data-id="b3"] rect.sg-mark').boundingBox();
+		const box = await page.locator('.sg-item[data-id="b3"] .sg-mark').boundingBox();
 		const y = box.y + box.height / 2;
 		await page.mouse.move(box.x + box.width / 2, y);
 		await page.mouse.down();

@@ -125,6 +125,11 @@ export interface Placed {
 	labelX: number;
 	labelInside: boolean;
 	labelAnchor: "start" | "end";
+	/** A buffer drawn on its task's row: the task's id. Its label sits above it. */
+	attachedTo?: string;
+	/** Ends that join another bar (a buffer and its task) are drawn square. */
+	squareLeft?: boolean;
+	squareRight?: boolean;
 }
 
 export interface Layout {
@@ -340,10 +345,61 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 			const to = labelInside ? x1 : Math.max(x1, labelAnchor === "start" ? labelX + labelW : x1);
 			return { mark, item, s, e, label, labelW, x0, x1, labelX, labelInside, labelAnchor, from, to };
 		});
-		// The journal lane is a single row of small markers; everything else is packed.
-		const rows = flat ? pre.map(() => 0) : pack(pre.map((p) => [p.from, p.to]), g.packGap);
+		// Buffer time sits on the row of the task it belongs to (one it overlaps, or follows within a week),
+		// joined to the bar like an extension of it, with its name above.
+		const hostOf = new Map<number, number>();
+		const isTask = (q: (typeof pre)[number]) => q.mark.kind === "item" && q.item.type === "task" && !q.item.dropped;
+		if (!strip && !flat) {
+			pre.forEach((b, i) => {
+				if (!isTask(b) || !b.item.buffer) return;
+				let best = -1, bestScore = Infinity;
+				pre.forEach((t, j) => {
+					if (!isTask(t) || t.item.buffer) return;
+					const overlaps = b.s <= t.e && b.e >= t.s;
+					const follows = b.s > t.e && b.s - t.e <= 7;
+					if (!overlaps && !follows) return;
+					const score = (b.item.after?.includes(t.item.id) ? 0 : 1000) + (overlaps ? 0 : b.s - t.e);
+					if (score < bestScore) [best, bestScore] = [j, score];
+				});
+				if (best >= 0) hostOf.set(i, best);
+			});
+			const labelSize = g.fontSize - 1.5;
+			for (const [i, j] of hostOf) {
+				const b = pre[i], t = pre[j];
+				b.labelW = b.label ? opts.measure(b.label, 500, labelSize) : 0;
+				b.labelInside = false;
+				b.labelAnchor = b.x0 + b.labelW + 2 > width ? "end" : "start";
+				b.labelX = b.labelAnchor === "end" ? b.x1 : b.x0 + 1;
+				b.from = Math.min(t.from, b.x0);
+				b.to = b.x1;
+				// The task's own label moves past the buffer (or out of the bar, if the buffer covers it).
+				const end = Math.max(t.x1, b.x1);
+				const covered = t.labelInside && t.labelX + t.labelW > b.x0 && t.labelX < b.x1;
+				if (!t.labelInside || covered) {
+					t.labelInside = false;
+					t.labelAnchor = end + g.labelGap + t.labelW + 4 > width ? "end" : "start";
+					t.labelX = t.labelAnchor === "end" ? t.x0 - g.labelGap : end + g.labelGap;
+				}
+				t.from = Math.min(t.from, b.x0, t.labelAnchor === "end" && !t.labelInside ? t.labelX - t.labelW : t.from);
+				t.to = Math.max(t.to, b.x1, t.labelAnchor === "start" && !t.labelInside ? t.labelX + t.labelW : t.to);
+			}
+		}
+
+		// The journal lane is a single row of small markers; everything else is packed (buffers ride with their task).
+		const packed = pre.map((_, i) => i).filter((i) => !hostOf.has(i));
+		const packedRows = flat ? packed.map(() => 0) : pack(packed.map((i) => [pre[i].from, pre[i].to]), g.packGap);
+		const rows: number[] = [];
+		packed.forEach((i, k) => (rows[i] = packedRows[k]));
+		for (const [i, j] of hostOf) rows[i] = rows[j];
 		const rowCount = Math.max(1, ...rows.map((r) => r + 1));
-		const contentH = rowCount * pitch - (pitch - markH);
+		// Rows with a buffer's name above them get a little headroom for it.
+		const headroom = Math.round(g.fontSize + 1);
+		const rowTop: number[] = [];
+		for (let r = 0, extra = 0; r < rowCount; r++) {
+			if ([...hostOf.keys()].some((i) => rows[i] === r && pre[i].label)) extra += headroom;
+			rowTop[r] = r * pitch + extra;
+		}
+		const contentH = rowTop[rowCount - 1] + markH;
 		const height = Math.max(strip ? 36 : group.collapsed ? g.minLaneH - 12 : g.minLaneH, contentH + g.lanePad * 2);
 		const contentTop = y + (height - contentH) / 2;
 
@@ -368,6 +424,17 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 		};
 		lanes.push(lane);
 
+		/** How a buffer and its task join: square ends where they touch. */
+		const joins = (i: number): Partial<Placed> => {
+			const j = hostOf.get(i);
+			if (j !== undefined) {
+				const b = pre[i], t = pre[j];
+				return { attachedTo: t.item.id, squareLeft: b.s <= t.e + 1, squareRight: b.e < t.e };
+			}
+			const follows = [...hostOf].some(([bi, tj]) => tj === i && pre[bi].s === pre[i].e + 1);
+			return follows ? { squareRight: true } : {};
+		};
+
 		pre.forEach((p, i) => {
 			const parent = p.mark.parentId ? project.items.find((it) => it.id === p.mark.parentId) : undefined;
 			placed.push({
@@ -383,13 +450,14 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 				endDay: p.e,
 				x0: p.x0,
 				x1: p.x1,
-				cy: contentTop + rows[i] * pitch + markH / 2,
+				cy: contentTop + rowTop[rows[i]] + markH / 2,
 				color: group.phase?.color ?? (p.item.type === "location" ? null : phaseColor(p.item.phase ?? parent?.phase)),
 				label: p.label,
 				labelW: p.labelW,
 				labelX: p.labelX,
 				labelInside: p.labelInside,
 				labelAnchor: p.labelAnchor,
+				...joins(i),
 			});
 		});
 		y += height;

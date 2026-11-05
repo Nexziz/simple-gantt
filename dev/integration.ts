@@ -61,7 +61,7 @@ function check(cond: unknown, msg: string) {
 		check(view().board.getProject().title === "Renamed in editor", "undo never reverts edits made outside the board");
 
 		// Drag a bar: move the teaching task by ~2 weeks
-		const bar = document.querySelector('.sg-item.sg-task rect.sg-mark') as SVGRectElement;
+		const bar = document.querySelector('.sg-item.sg-task .sg-mark') as SVGGraphicsElement;
 		const id = bar.closest(".sg-item")!.getAttribute("data-id")!;
 		const before = view().board.getProject().items.find((i: any) => i.id === id);
 		const startBefore = before.start;
