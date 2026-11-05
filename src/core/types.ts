@@ -137,6 +137,8 @@ export interface Project {
 	off?: import("./features").Feature[];
 	/** A saved copy of the plan's dates, to compare against (see core/baseline). */
 	baseline?: import("./baseline").Baseline;
+	/** How this timeline prints, where it differs from the defaults (see core/printSettings). */
+	print?: Partial<import("./printSettings").PrintSettings>;
 }
 
 export function newId(): string {

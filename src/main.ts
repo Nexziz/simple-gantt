@@ -24,7 +24,7 @@ export default class SimpleGanttPlugin extends Plugin {
 		this.addCommand({ id: "open", name: "Open timeline", callback: () => this.activateView() });
 		this.addCommand({ id: "show-overview", name: "Show overview in the sidebar", callback: () => void this.showOverview("left") });
 		this.addCommand({ id: "import", name: "Import into the open timeline", callback: () => void this.withBoard((v) => v.openImport()) });
-		this.addCommand({ id: "print-pdf", name: "Save a PDF for printing", callback: () => void this.withBoard((v) => v.exportPdf()) });
+		this.addCommand({ id: "print-pdf", name: "Print or save as PDF", callback: () => void this.withBoard((v) => v.openPrintDialog()) });
 		this.addCommand({
 			id: "new-dissertation",
 			name: "New dissertation timeline",

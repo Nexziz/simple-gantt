@@ -8,7 +8,8 @@ import { toCsv, toMarkdownTable } from "../core/table";
 import { Layout, Placed, computeLayout } from "../core/layout";
 import { ParseResult, parseQuickAdd } from "../core/parse";
 import { MOOD_COLORS, connectorX, makeMeasure, paintBody, paintHeader, paintLabels, renderExportSvg, svgEl, svgToImage, svgToPng, svgToString } from "../core/render";
-import { A4_LANDSCAPE, renderPrintPages } from "../core/print";
+import { renderPrintPages } from "../core/print";
+import { PAPER, PrintSettings, changedPrintSettings, pageSize, printSettingsOf } from "../core/printSettings";
 import { jpegPdf } from "../core/pdf";
 import { FORMAT_LABELS, ImportPreview, applyImport, parseImport } from "../core/importer";
 import { TEMPLATES, TemplateId } from "../core/templates";
@@ -159,6 +160,8 @@ export class GanttBoard {
 	private redoStack: string[] = [];
 	private drag: Drag | null = null;
 	private panelMode: "item" | "project" | "journal" | "import" | null = null;
+	/** The print window, while it's open. */
+	private printDialog: El | null = null;
 	/** What's in the import box, kept while the panel is closed and reopened. */
 	private importText = "";
 	private nudgeIndex = 0;
@@ -2001,7 +2004,8 @@ export class GanttBoard {
 			e.preventDefault();
 			this.redo();
 		} else if (e.key === "Escape") {
-			if (this.menu) this.closeMenu();
+			if (this.printDialog) this.closePrintDialog();
+			else if (this.menu) this.closeMenu();
 			else if (this.panelMode) this.closePanel();
 			else if (this.selectedIds.size || this.selectedLink) this.select(null);
 			else if (this.tool !== "hand") this.setTool("hand");
@@ -3111,7 +3115,7 @@ export class GanttBoard {
 		this.popMenu(anchor, (menu) => {
 			h("div", { cls: "sg-menu-label", text: "Print & share" }, menu);
 			const label = (main: string, note: string) => h("span", { kids: [`${main} `, h("small", { text: note })] });
-			this.menuItem(menu, [icon("print", 14), label("PDF for printing", "A4 landscape")], () => void this.exportPdf(), "is-primary");
+			this.menuItem(menu, [icon("print", 14), label("Print / PDF…", "paper, layout, preview")], () => this.openPrintDialog(), "is-primary");
 			this.menuItem(menu, [icon("download", 14), label("PNG image", "high resolution")], () => void this.exportAs("png"));
 			this.menuItem(menu, [icon("download", 14), label("SVG", "vector, for Word / LaTeX")], () => void this.exportAs("svg"));
 			if (this.comparePlan) h("div", { cls: "sg-menu-hint", text: "Includes the saved plan, as shown." }, menu);
@@ -3129,24 +3133,161 @@ export class GanttBoard {
 	 * A print-ready PDF: A4 landscape pages (more than one when the plan is long), saved next to the note and
 	 * opened, ready to print from any PDF viewer at 100%.
 	 */
-	async exportPdf() {
+	/** The pages as they'll print, with this timeline's print settings (or the ones given). */
+	private printPages(settings?: PrintSettings): SVGSVGElement[] {
+		return renderPrintPages(this.project!, { today: toDay(this.host.today()), compare: this.comparePlan, settings });
+	}
+
+	/** A print-ready PDF (one page per sheet), saved next to the note and opened, ready to print at 100%. */
+	async exportPdf(settings?: PrintSettings) {
 		if (!this.project) return;
 		const project = this.project;
+		const set = settings ?? printSettingsOf(project.print);
 		try {
-			const pages = renderPrintPages(project, { today: toDay(this.host.today()), compare: this.comparePlan });
+			const pages = this.printPages(set);
+			const size = pageSize(set);
 			const scale = 3; // ≈ 290 dpi on paper
 			const images = [];
 			for (const svg of pages) {
 				const jpeg = new Uint8Array(await (await svgToImage(svg, scale, "image/jpeg", 0.92)).arrayBuffer());
-				images.push({ jpeg, width: Math.round(A4_LANDSCAPE.width * scale), height: Math.round(A4_LANDSCAPE.height * scale) });
+				images.push({ jpeg, width: Math.round(size.w * scale), height: Math.round(size.h * scale) });
 			}
-			const pdf = jpegPdf(images, A4_LANDSCAPE.widthPt, A4_LANDSCAPE.heightPt, project.title);
+			const pdf = jpegPdf(images, size.wPt, size.hPt, project.title);
 			const path = await this.host.exportFile(`${this.exportBase()}.pdf`, new Blob([pdf], { type: "application/pdf" }));
-			if (pages.length > 1) this.host.notify(`The plan didn't fit on one sheet, so it's on ${pages.length} A4 pages.`);
+			if (pages.length > 1) this.host.notify(`The plan didn't fit on one sheet, so it's on ${pages.length} ${PAPER[set.paper].label} pages.`);
 			if (path) this.host.openNote?.(path);
 		} catch (err) {
 			this.host.notify(`PDF export failed: ${(err as Error).message}`);
 		}
+	}
+
+	/** The printed pages as PNG images (one file per page). */
+	async exportPrintPng(settings: PrintSettings) {
+		if (!this.project) return;
+		try {
+			const pages = this.printPages(settings);
+			for (const [i, svg] of pages.entries()) {
+				const name = pages.length > 1 ? `${this.exportBase()} page ${i + 1}.png` : `${this.exportBase()}.png`;
+				await this.host.exportFile(name, await svgToPng(svg, 2));
+			}
+		} catch (err) {
+			this.host.notify(`Export failed: ${(err as Error).message}`);
+		}
+	}
+
+	/**
+	 * The print window: paper, layout and what to show on the left, a live preview of the pages on the right.
+	 * The choices are saved with this timeline, so it prints the same way next time.
+	 */
+	openPrintDialog() {
+		if (!this.project) return;
+		const project = this.project;
+		this.closeMenu();
+		this.printDialog?.remove();
+		let set = printSettingsOf(project.print);
+
+		const overlay = this.printDialog = h("div", { cls: "sg-print-overlay" }, this.root);
+		const card = h("div", { cls: "sg-print", attrs: { role: "dialog", "aria-label": "Print or save as PDF" } }, overlay);
+		const side = h("div", { cls: "sg-print-side" }, card);
+		const head = h("div", { cls: "sg-panel-head" }, side);
+		h("span", { cls: "sg-panel-type", kids: [icon("print", 14)] }, head);
+		h("h3", { text: "Print or save as PDF" }, head);
+		const close = h("button", { cls: "sg-btn sg-icon-btn", kids: [icon("x")], attrs: { "aria-label": "Close" } }, head);
+		close.addEventListener("click", () => this.closePrintDialog());
+		const controls = h("div", { cls: "sg-print-controls" }, side);
+		const main = h("div", { cls: "sg-print-main" }, card);
+		const pagesEl = h("div", { cls: "sg-print-pages" }, main);
+
+		let frame = 0;
+		const draw = () => {
+			const pages = this.printPages(set);
+			pagesEl.replaceChildren(...pages.map((svg) => h("div", { cls: `sg-print-sheet${set.orientation === "portrait" ? " is-portrait" : ""}`, kids: [svg] })));
+			info.textContent = `${pages.length} page${pages.length === 1 ? "" : "s"} · ${PAPER[set.paper].label} ${set.orientation}`;
+		};
+		const change = (patch: Partial<PrintSettings>) => {
+			set = { ...set, ...patch };
+			// Saved with the timeline (only what differs from the defaults).
+			const changed = changedPrintSettings(set);
+			if (changed) project.print = changed;
+			else delete project.print;
+			this.host.save(project);
+			sync();
+			window.cancelAnimationFrame(frame);
+			frame = window.requestAnimationFrame(draw);
+		};
+
+		const syncs: (() => void)[] = [];
+		const sync = () => syncs.forEach((f) => f());
+		const choice = <K extends "paper" | "orientation" | "spacing" | "textSize">(label: string, key: K, options: [PrintSettings[K], string][]) => {
+			const field = h("div", { cls: "sg-field" }, controls);
+			h("span", { cls: "sg-label", text: label }, field);
+			const seg = h("div", { cls: "sg-seg sg-seg-wide", attrs: { role: "group", "aria-label": label } }, field);
+			for (const [value, text] of options) {
+				const b = h("button", { text }, seg);
+				b.addEventListener("click", () => change({ [key]: value }));
+				syncs.push(() => b.classList.toggle("is-active", set[key] === value));
+			}
+		};
+		choice("Paper", "paper", [["a4", "A4"], ["a3", "A3"], ["letter", "Letter"]]);
+		choice("Orientation", "orientation", [["landscape", "Landscape"], ["portrait", "Portrait"]]);
+		choice("Space between rows", "spacing", [["tight", "Tight"], ["normal", "Normal"], ["roomy", "Roomy"]]);
+		choice("Text size", "textSize", [["small", "Small"], ["normal", "Normal"], ["large", "Large"]]);
+
+		h("div", { cls: "sg-section-title", text: "Show" }, controls);
+		const list = h("div", { cls: "sg-features" }, controls);
+		const toggle = (key: keyof PrintSettings, labelText: string, desc: string, nested?: keyof PrintSettings) => {
+			const row = h("label", { cls: `sg-feature${nested ? " is-nested" : ""}` }, list);
+			h("span", { cls: "sg-feature-text", kids: [h("strong", { text: labelText }), h("small", { text: desc })] }, row);
+			const sw = h("input", { cls: "sg-switch", attrs: { type: "checkbox", role: "switch", "aria-label": labelText, "data-print": key } }, row);
+			sw.addEventListener("change", () => change({ [key]: sw.checked }));
+			syncs.push(() => {
+				sw.checked = !!set[key];
+				if (nested) {
+					sw.disabled = !set[nested];
+					row.classList.toggle("is-disabled", !set[nested]);
+				}
+			});
+		};
+		toggle("milestoneTable", "Milestone table", "Every milestone under the chart, earliest first, with how far off it is");
+		toggle("tableDeadlines", "Deadlines in the table", "List the deadlines there too", "milestoneTable");
+		toggle("taskDates", "Task dates", "Each task's dates after its name");
+		toggle("today", "Today line", "Where the plan stands on the day you print");
+		toggle("arrows", "Arrows", "Between steps that follow each other");
+		toggle("captions", "Buffer and Plan B names", "Above the hatched and dashed parts of a bar");
+		toggle("weeks", "Week dates", "The row of dates under the months");
+		toggle("subtitle", "Subtitle and author", "Under the title");
+		toggle("countdown", "Countdown", "Time left to the next deadline, by the title");
+		if (project.baseline) {
+			const row = h("label", { cls: "sg-feature" }, list);
+			h("span", { cls: "sg-feature-text", kids: [h("strong", { text: "Saved plan" }), h("small", { text: "Dashed outlines where things were planned" })] }, row);
+			const sw = h("input", { cls: "sg-switch", attrs: { type: "checkbox", role: "switch", "aria-label": "Saved plan" } }, row);
+			sw.checked = this.comparePlan;
+			sw.addEventListener("change", () => {
+				this.comparePlan = sw.checked;
+				this.render();
+				draw();
+			});
+		}
+		const reset = h("button", { cls: "sg-link-btn", kids: [icon("undo", 13), "Back to the standard layout"] }, controls);
+		reset.addEventListener("click", () => change(printSettingsOf(undefined)));
+
+		const foot = h("div", { cls: "sg-print-foot" }, side);
+		const info = h("div", { cls: "sg-hint" }, foot);
+		const buttons = h("div", { cls: "sg-print-buttons" }, foot);
+		const png = h("button", { cls: "sg-btn", kids: [icon("download", 14), span("PNG")] }, buttons);
+		png.addEventListener("click", () => void this.exportPrintPng(set));
+		const pdf = h("button", { cls: "sg-btn sg-primary", kids: [icon("print", 14), span("Save PDF")] }, buttons);
+		pdf.addEventListener("click", () => void this.exportPdf(set).then(() => this.closePrintDialog()));
+		overlay.addEventListener("pointerdown", (e) => e.target === overlay && this.closePrintDialog());
+
+		sync();
+		draw();
+	}
+
+	closePrintDialog() {
+		this.printDialog?.remove();
+		this.printDialog = null;
+		this.root.focus({ preventScroll: true });
 	}
 
 	private openColorMenu(anchor: El, current: ColorName, onPick: (c: ColorName) => void) {

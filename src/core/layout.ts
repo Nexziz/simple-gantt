@@ -53,6 +53,18 @@ export const PRINT_GEOMETRY: Geometry = {
 	fontSize: 11.5,
 };
 
+/** The longest start of `text` (ending in "…") that fits `max` pixels. */
+function shorten(text: string, max: number, width: (t: string) => number): string {
+	if (width(text) <= max) return text;
+	let lo = 0, hi = text.length;
+	while (lo < hi) {
+		const mid = (lo + hi + 1) >> 1;
+		if (width(text.slice(0, mid).trimEnd() + "…") <= max) lo = mid;
+		else hi = mid - 1;
+	}
+	return lo ? text.slice(0, lo).trimEnd() + "…" : "";
+}
+
 /** Space between a label and its grey note. */
 export const NOTE_GAP = 6;
 
@@ -184,6 +196,12 @@ export interface LayoutOptions {
 	 * dashed bar's label instead of a separate marker.
 	 */
 	print?: boolean;
+	/** Paper: a task's dates after its name (default on). */
+	taskDates?: boolean;
+	/** The names of buffers and Plan Bs drawn above their task (default on). */
+	captions?: boolean;
+	/** Show the week row in the date header; by default it shows when there's room. */
+	weeks?: boolean;
 }
 
 export type Measure = LayoutOptions["measure"];
@@ -229,7 +247,7 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 	const width = (viewEnd - viewStart + 1) * ppd;
 	const xOf = (day: number) => (day - viewStart) * ppd;
 	const dayAt = (x: number) => viewStart + Math.floor(x / ppd);
-	const showWeeks = ppd >= 4.5;
+	const showWeeks = opts.weeks ?? ppd >= 4.5;
 	const headerH = g.yearRowH + g.monthRowH + (showWeeks ? g.weekRowH : 0);
 
 	const phaseIds = new Set(project.phases.map((p) => p.id));
@@ -329,15 +347,16 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 			const [s, e] = itemDays(item);
 			const done = mark.kind === "item" && isDone(item);
 			const dated = (opts.datedLabels || print) && mark.kind === "item" && (item.type === "milestone" || item.type === "deadline" || item.type === "event");
-			const label = journal || (flat && mark.kind !== "summary") ? "" : (done ? "✓ " : "") + (item.title || "Untitled") + (dated ? ` · ${formatDay(s, false)}` : "");
+			let label = journal || (flat && mark.kind !== "summary") ? "" : (done ? "✓ " : "") + (item.title || "Untitled") + (dated ? ` · ${formatDay(s, false)}` : "");
 			const badge = item.type === "milestone" && !!label && !print;
 			const weight = item.type === "deadline" || item.type === "location" || badge ? 600 : 500;
 			// On paper a task's dates follow its name in small grey text (there's no hovering on paper).
-			const note = print && label && mark.kind === "item" && item.type === "task" && !item.buffer ? shortRange(s, e) : "";
+			let note = print && opts.taskDates !== false && label && mark.kind === "item" && item.type === "task" && !item.buffer ? shortRange(s, e) : "";
 			// Milestone labels sit in a tinted badge: reserve its padding.
-			const labelW = label
-				? opts.measure(label, weight, g.fontSize) + (badge ? MILESTONE_BADGE_PAD * 2 : 0) + (note ? NOTE_GAP + opts.measure(note, 400, g.fontSize - 1.5) : 0)
+			const widthOf = (text: string, withNote: string) => text
+				? opts.measure(text, weight, g.fontSize) + (badge ? MILESTONE_BADGE_PAD * 2 : 0) + (withNote ? NOTE_GAP + opts.measure(withNote, 400, g.fontSize - 1.5) : 0)
 				: 0;
+			let labelW = widthOf(label, note);
 			let x0: number, x1: number, labelX: number, labelInside = false, labelAnchor: "start" | "end" = "start";
 			if (item.type === "task" || item.type === "location") {
 				x0 = xOf(s);
@@ -354,9 +373,25 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 				x1 = cx + r;
 				labelX = x1 + g.labelGap;
 			}
-			if (!labelInside && labelX + labelW + 4 > width) {
-				labelAnchor = "end";
-				labelX = x0 - g.labelGap;
+			if (!labelInside && label) {
+				// Beside the mark, on whichever side has room. A label never runs off the chart: if it fits neither
+				// side, its grey date goes first, and only then is the name shortened (on the roomier side).
+				const roomRight = width - (x1 + g.labelGap) - 4;
+				const roomLeft = x0 - g.labelGap - 4;
+				if (labelW > roomRight && labelW > roomLeft && note) {
+					note = "";
+					labelW = widthOf(label, "");
+				}
+				const left = labelW > roomRight && (labelW <= roomLeft || roomLeft > roomRight);
+				const room = left ? roomLeft : roomRight;
+				if (labelW > room) {
+					label = shorten(label, Math.max(0, room - (badge ? MILESTONE_BADGE_PAD * 2 : 0)), (t) => opts.measure(t, weight, g.fontSize));
+					labelW = widthOf(label, "");
+				}
+				if (left) {
+					labelAnchor = "end";
+					labelX = x0 - g.labelGap;
+				}
 			}
 			const from = labelInside ? x0 : Math.min(x0, labelAnchor === "end" ? labelX - labelW : x0);
 			const to = labelInside ? x1 : Math.max(x1, labelAnchor === "start" ? labelX + labelW : x1);
@@ -390,8 +425,9 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 			const labelSize = g.fontSize - 1.5;
 			for (const [i, j] of hostOf) {
 				const b = pre[i], t = pre[j];
-				// On paper a buffer's caption says when it is.
-				if (print && b.label && b.mark.kind === "item") b.label = `${b.label} · ${shortRange(b.s, b.e)}`;
+				// On paper a buffer's caption says when it is; captions can be switched off.
+				if (opts.captions === false) b.label = "";
+				else if (print && b.label && b.mark.kind === "item") b.label = `${b.label} · ${shortRange(b.s, b.e)}`;
 				b.labelW = b.label ? opts.measure(b.label, 500, labelSize) : 0;
 				b.labelInside = false;
 				// Over the part that shows: a Plan B under its task only shows past the task's end.

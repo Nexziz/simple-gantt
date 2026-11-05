@@ -93,8 +93,8 @@ export class GanttView extends ItemView {
 		this.board?.openImport();
 	}
 
-	exportPdf() {
-		return this.board?.exportPdf();
+	openPrintDialog() {
+		this.board?.openPrintDialog();
 	}
 
 	/** Select an item and scroll it into view (e.g. from the sidebar overview). */

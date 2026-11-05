@@ -148,6 +148,11 @@ const scenes = {
 		for (let i = 0; i < 6; i++) await page.evaluate(() => document.querySelector('.sg-nudge [aria-label="Dismiss"]')?.click());
 		await page.waitForTimeout(400);
 	},
+	async "25-print-window"(page) {
+		await page.click('.sg-toolbar .sg-btn:has-text("Export")');
+		await page.click('.sg-menu .sg-menu-item:has-text("Print / PDF")');
+		await page.waitForTimeout(500);
+	},
 	async "14-ripple"(page) {
 		const box = await page.locator('.sg-item[data-id="b3"] .sg-mark').boundingBox();
 		const y = box.y + box.height / 2;

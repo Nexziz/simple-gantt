@@ -2,6 +2,7 @@ import { fromDay, isIsoDate, toDay } from "./dates";
 import { pruneLinks } from "./links";
 import { ALL_FEATURES } from "./features";
 import { formatInterval, parseInterval } from "./baseline";
+import { changedPrintSettings, readPrintSettings } from "./printSettings";
 import {
 	CHECKIN_LABELS, COLOR_ORDER, CheckIn, ColorName, GanttItem, ITEM_TYPES, ItemType, JournalEntry, Mood, Phase, Project,
 	isCheckable, isRangeType, newId, slugify,
@@ -201,6 +202,8 @@ export function normalizeProject(raw: unknown, fallbackTitle = "Untitled project
 		}
 		project.baseline = { saved: asDate(bl.saved) ?? today, items };
 	}
+	const print = readPrintSettings(r.print);
+	if (print) project.print = print;
 	pruneLinks(project);
 	return project;
 }
@@ -254,6 +257,8 @@ export function toPlain(project: Project): Record<string, unknown> {
 		for (const [id, v] of Object.entries(project.baseline.items)) if (ids.has(id)) items[id] = formatInterval(v);
 		out.baseline = { saved: project.baseline.saved, items };
 	}
+	const print = changedPrintSettings(project.print);
+	if (print) out.print = print;
 	if (project.journal?.length)
 		out.journal = [...project.journal]
 			.sort((a, b) => a.date.localeCompare(b.date))

@@ -84,8 +84,12 @@ The overview panel shows your next deadline, what's on now and what's coming up.
 
 ![The overview panel in the sidebar](https://raw.githubusercontent.com/Nexziz/simple-gantt/main/docs/gifs/sidebar.gif)
 
-### Print it on A4
-**Export → PDF for printing** makes a print-ready A4 landscape PDF and opens it. It's kept as plain as possible: deadlines in red in one row at the top, each with a line through the whole chart; milestones as bold diamonds with their dates; each task's dates in small grey text after its name; a Today line; and no legend or summaries, because the picture explains itself. Rows are spaced as generously as the sheet allows, so every arrow is easy to follow. The rows spread out to fill the sheet, and a long plan continues on a second page with the dates and deadlines repeated.
+### Print it, your way
+**Export → Print / PDF…** opens a print window with a live preview. Pick A4, A3 or Letter, landscape or portrait, how much room there is between the rows and how big the text is, and what to show: a **milestone table** (every milestone earliest first, with how far off it is), task dates, a Today line, arrows, buffer and Plan B names, week dates, the subtitle, and a countdown to the next deadline. Your choices are saved with the timeline. **Save PDF** writes a print-ready PDF and opens it; print it at 100%.
+
+The page itself is kept clean: deadlines in red in one row at the top, each with a line through the whole chart; milestones as bold diamonds with their dates; no legend, because the picture explains itself. No label ever runs off the page.
+
+![The print window](https://raw.githubusercontent.com/Nexziz/simple-gantt/main/docs/images/25-print-window.png)
 
 ![An A4 landscape printout](https://raw.githubusercontent.com/Nexziz/simple-gantt/main/docs/images/24-print-a4.png)
 
@@ -155,7 +159,7 @@ The overview panel shows your next deadline, what's on now and what's coming up.
 <details open>
 <summary><b>Share &amp; export</b></summary>
 
-- **PDF for printing (A4 landscape):** a clean page with nothing said twice. Deadlines appear once, in red at the top, with a line through every phase. Milestones are bold diamonds with their dates. A Plan B shows its decision date in its own label. There's no legend, item counts or long arrows cutting across phases. Long plans continue on more pages, each repeating the dates and deadlines. Print it at 100% from any PDF viewer.
+- **Print / PDF** with a live preview: A4, A3 or Letter, landscape or portrait, tight to roomy row spacing, three text sizes, and switches for the milestone table, task dates, Today line, arrows, buffer and Plan B names, week dates, subtitle and countdown. Saved per timeline. Long plans continue on more pages, each repeating the dates and deadlines.
 - **PNG or SVG** in the same clean, white style. You can include the saved plan for a "planned vs. actual" figure.
 - **Markdown table or CSV** of the whole plan, for an appendix or a spreadsheet.
 - **Reading view:** the note's block renders as a chart preview, and you can copy it into any other note.
@@ -280,7 +284,7 @@ baseline:
 
 Then click the timeline button in the left ribbon, or run **Simple Gantt: New dissertation timeline** from the command palette.
 
-**Commands:** Open timeline · Show overview in the sidebar · Import into the open timeline · Save a PDF for printing (A4 landscape) · New dissertation timeline · New blank timeline · Open this note as a timeline
+**Commands:** Open timeline · Show overview in the sidebar · Import into the open timeline · Print or save as PDF · New dissertation timeline · New blank timeline · Open this note as a timeline
 
 ## Development
 

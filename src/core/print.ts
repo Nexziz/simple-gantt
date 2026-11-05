@@ -1,8 +1,10 @@
-import { formatDay, toDay } from "./dates";
-import { COMPACT, Geometry, Lane, Layout, PRINT_GEOMETRY, computeLayout } from "./layout";
+import { formatDay, formatDuration, toDay } from "./dates";
+import { COMPACT, Geometry, Lane, Layout, Measure, PRINT_GEOMETRY, computeLayout } from "./layout";
+import { nextDeadline } from "./nudges";
+import { PrintSettings, pageSize, printSettingsOf } from "./printSettings";
 import { NS, PaintOptions, formatPeriod, makeMeasure, nest, paintBody, paintHeader, paintLabels, svgEl, text } from "./render";
 import { PRINT_THEME, Theme } from "./theme";
-import type { Project } from "./types";
+import { Project, isDone } from "./types";
 
 /** A4 landscape in CSS pixels at 96 dpi (297 × 210 mm), so text prints at its real size. */
 export const A4_LANDSCAPE = { width: 1123, height: 794, widthPt: 841.89, heightPt: 595.28 };
@@ -12,38 +14,58 @@ export interface PrintOptions {
 	/** Draw the saved plan as dashed outlines. */
 	compare?: boolean;
 	theme?: Theme;
+	/** Paper, spacing and what to show; defaults to the timeline's own saved settings. */
+	settings?: PrintSettings;
 }
 
+/** Text and bar sizes for each text size; the largest row spacing to aim for at each spacing. */
+const TEXT = { small: { font: 11, bar: 16 }, normal: { font: 12, bar: 17 }, large: { font: 13.5, bar: 19 } } as const;
+const PITCH = { tight: [34, 26], normal: [46, 30], roomy: [56, 36] } as const;
+
 /**
- * The timeline laid out for A4 landscape paper, as plain as possible: a title block and the chart, with dates on
- * milestones and deadlines and each deadline's line running through every phase. No legend or summaries: the
- * picture explains itself. When the rows don't fit on one sheet they continue on the next, each page repeating
- * the date header and the deadlines row.
+ * The timeline laid out for paper, as plain as possible: a title block, the chart (dates on milestones,
+ * deadlines and tasks; each deadline's line running through every phase) and a table of the milestones.
+ * Rows are spaced as generously as the sheet allows. When they don't fit on one sheet they continue on the
+ * next, each page repeating the date header and the deadlines row.
  */
 export function renderPrintPages(project: Project, opts: PrintOptions = {}): SVGSVGElement[] {
+	const set = opts.settings ?? printSettingsOf(project.print);
 	const theme = opts.theme ?? PRINT_THEME;
 	const measure = makeMeasure(theme.font);
-	const { width: W, height: H } = A4_LANDSCAPE;
+	const { w: W, h: H } = pageSize(set);
 	const M = 28;
-	const labelWidth = 190;
+	const portrait = set.orientation === "portrait";
+	const labelWidth = portrait ? 150 : 190;
 	const timelineW = W - 2 * M - labelWidth;
-	const title1 = 50, titleN = 26;
+	const title1 = 50, titleN = 26, gap = 14;
 	const compare = !!(opts.compare && project.baseline);
-	const room = (titleH: number, headerH: number) => H - 2 * M - titleH - headerH;
+	const today = set.today ? (opts.today ?? null) : null;
+
+	// The milestone table under the chart (on the last page) takes its share of the sheet first.
+	const table = set.milestoneTable ? milestoneTable(project, set, theme, measure, W - 2 * M, opts.today ?? null) : null;
+	const tableH = table ? table.height + gap : 0;
+	const room = (titleH: number, headerH: number) => H - 2 * M - titleH - headerH - tableH;
+
 	// Rows as roomy as the sheet allows, so the step from a bar to the next one (and its arrow) is easy to follow.
-	let layout = computeLayout(project, { pxPerDay: 1, showEmptyLanes: false, measure, density: "print", print: true });
+	const layoutOpts = {
+		showEmptyLanes: false, measure, print: true,
+		taskDates: set.taskDates, captions: set.captions, weeks: set.weeks ? undefined : false,
+	};
+	let layout = computeLayout(project, { ...layoutOpts, pxPerDay: 1, density: "print" });
 	const days = layout.viewEnd - layout.viewStart + 1;
-	const sized = (geometry: Geometry) => computeLayout(project, { pxPerDay: timelineW / days, showEmptyLanes: false, measure, geometry, print: true });
-	const base: Geometry = { ...COMPACT, barH: 17, stripH: 16, stripPitch: 24, lanePad: 6, minLaneH: 40, labelGap: 7, packGap: 10 };
+	const sized = (geometry: Geometry) => computeLayout(project, { ...layoutOpts, pxPerDay: timelineW / days, geometry });
+	const t = TEXT[set.textSize];
+	const base: Geometry = { ...COMPACT, fontSize: t.font, barH: t.bar, stripH: t.bar - 1, stripPitch: t.font * 2, lanePad: 6, minLaneH: 40, labelGap: 7, packGap: 10 };
 	// The chart may be scaled down a little (text stays readable) to keep the rows roomy.
 	const MIN_SCALE = 0.9;
-	const chartRoom = H - 2 * M - title1;
+	const chartRoom = H - 2 * M - title1 - tableH;
+	const [most, least] = PITCH[set.spacing];
 	let fits = false;
-	for (let rowPitch = 48; rowPitch >= 30 && !fits; rowPitch -= 1) {
+	for (let rowPitch = most; rowPitch >= least && !fits; rowPitch -= 1) {
 		layout = sized({ ...base, rowPitch });
 		fits = (layout.headerH + layout.bodyH) * MIN_SCALE <= chartRoom;
 	}
-	if (!fits) layout = sized(PRINT_GEOMETRY);
+	if (!fits) layout = sized({ ...PRINT_GEOMETRY, fontSize: Math.min(PRINT_GEOMETRY.fontSize, t.font) });
 	// A plan that fits with room to spare gets more padding around each phase, so the chart fills the sheet.
 	const spare = room(title1, layout.headerH) / layout.bodyH;
 	if (fits && spare > 1.04) {
@@ -52,18 +74,17 @@ export function renderPrintPages(project: Project, opts: PrintOptions = {}): SVG
 		const roomier = sized({ ...g, lanePad: g.lanePad * f, minLaneH: g.minLaneH * Math.min(f, 1.4) });
 		if (roomier.bodyH <= room(title1, layout.headerH)) layout = roomier;
 	}
-	// The Today line shows where the plan stands on the day it's printed.
-	const paint: PaintOptions = { theme, measure, interactive: false, print: true, today: opts.today ?? null, plan: compare ? project.baseline : null };
+	const paint: PaintOptions = { theme, measure, interactive: false, print: true, today, hideLinks: !set.arrows, plan: compare ? project.baseline : null };
 	// A little too tall still fits on one sheet, slightly smaller; only much longer plans continue on a second page.
 	const SHRINK = 0.85;
 
 	// Split the rows into pages: the deadlines (Key dates) row on every page, then as many lanes as fit.
 	const pages: Lane[][] = [];
-	const total = layout.lanes.reduce((s, l) => s + l.height, 0);
+	const total = layout.lanes.reduce((n, l) => n + l.height, 0);
 	if ((layout.headerH + total) * SHRINK <= layout.headerH + room(title1, layout.headerH)) pages.push(layout.lanes);
 	else {
 		const pinned = layout.lanes.filter((l) => l.kind === "keydates");
-		const pinnedH = pinned.reduce((s, l) => s + l.height, 0);
+		const pinnedH = pinned.reduce((n, l) => n + l.height, 0);
 		let page: Lane[] = [...pinned];
 		let used = pinnedH;
 		for (const lane of layout.lanes.filter((l) => l.kind !== "keydates")) {
@@ -84,16 +105,23 @@ export function renderPrintPages(project: Project, opts: PrintOptions = {}): SVG
 		const svg = svgEl("svg", { xmlns: NS, width: W, height: H, viewBox: `0 0 ${W} ${H}`, "font-family": theme.font });
 		svgEl("rect", { x: 0, y: 0, width: W, height: H, fill: theme.surface }, svg);
 		const titleH = i === 0 ? title1 : titleN;
+		const last = i === pages.length - 1;
 
-		// Title block
+		// Title block: the name and what it's about on the left; the period, the next deadline and the date on the right.
 		const name = project.title || "Project timeline";
 		if (i === 0) {
 			text(svg, M, M + 12, name, { fill: theme.ink, "font-size": 20, "font-weight": 700 });
-			const meta = [project.subtitle, project.author].filter(Boolean).join("  ·  ");
+			const meta = set.subtitle ? [project.subtitle, project.author].filter(Boolean).join("  ·  ") : "";
 			if (meta) text(svg, M, M + 33, meta, { fill: theme.inkSecondary, "font-size": 11.5 });
 			text(svg, W - M, M + 12, formatPeriod(toDay(project.start), toDay(project.end)), { fill: theme.ink, "font-size": 13, "font-weight": 600, "text-anchor": "end" });
-			const note = compare ? `Dashed outlines: the plan saved ${formatDay(toDay(project.baseline!.saved))} · updated ${printed}` : `Updated ${printed}`;
-			text(svg, W - M, M + 33, note, { fill: theme.inkMuted, "font-size": 10.5, "text-anchor": "end" });
+			// The next deadline and how far off it is, in red; then when this was printed.
+			const next = set.countdown && opts.today != null ? nextDeadline(project, opts.today) : null;
+			const rest = [compare ? `dashed outlines: the plan saved ${formatDay(toDay(project.baseline!.saved))}` : "", `updated ${printed}`].filter(Boolean).join("  ·  ");
+			const line = text(svg, W - M, M + 33, next ? "" : rest[0].toUpperCase() + rest.slice(1), { fill: theme.inkMuted, "font-size": 10.5, "text-anchor": "end" });
+			if (next) {
+				svgEl("tspan", { fill: theme.deadline, "font-weight": 600 }, line).textContent = `${next.item.title} ${next.days === 0 ? "today" : `in ${formatDuration(next.days)}`}`;
+				svgEl("tspan", {}, line).textContent = `  ·  ${rest}`;
+			}
 		} else {
 			text(svg, M, M + 10, `${name} (continued)`, { fill: theme.ink, "font-size": 13, "font-weight": 600 });
 		}
@@ -101,7 +129,8 @@ export function renderPrintPages(project: Project, opts: PrintOptions = {}): SVG
 		// Chart: the header, the phases and the deadlines' lines. Nothing the picture already says twice.
 		const slice = sliceLayout(layout, lanes);
 		const chartH = layout.headerH + slice.bodyH;
-		const scale = Math.min(1, room(titleH, 0) / chartH);
+		const roomHere = H - 2 * M - titleH - (last ? tableH : 0);
+		const scale = Math.min(1, roomHere / chartH);
 		const chartW = labelWidth + layout.width;
 		const chart = svgEl("g", { transform: `translate(${M + (chartW * (1 - scale)) / 2}, ${M + titleH}) scale(${scale})` }, svg);
 		svgEl("rect", { x: 0, y: 0, width: labelWidth, height: layout.headerH, fill: theme.surface }, chart);
@@ -112,9 +141,79 @@ export function renderPrintPages(project: Project, opts: PrintOptions = {}): SVG
 		nest(chart, paintBody(slice, paint), labelWidth, layout.headerH);
 		svgEl("rect", { x: 0.5, y: 0.5, width: chartW - 1, height: chartH - 1, rx: 6, fill: "none", stroke: theme.axis }, chart);
 
+		// The milestone table, right under the chart.
+		if (last && table) {
+			table.node.setAttribute("transform", `translate(${M}, ${M + titleH + chartH * scale + gap})`);
+			svg.appendChild(table.node);
+		}
 		if (pages.length > 1) text(svg, W - M, H - M / 2, `Page ${i + 1} of ${pages.length}`, { fill: theme.inkMuted, "font-size": 8.5, "text-anchor": "end" });
 		return svg;
 	});
+}
+
+/**
+ * The milestones (and, if chosen, the deadlines) earliest first, in columns that read down then across:
+ * each with its marker in the phase colour, its date, its name and how far off it is.
+ */
+function milestoneTable(project: Project, set: PrintSettings, theme: Theme, measure: Measure, width: number, today: number | null): { node: SVGGElement; height: number } | null {
+	const items = project.items
+		.filter((i) => !i.dropped && (i.type === "milestone" || (set.tableDeadlines && i.type === "deadline")))
+		.sort((a, b) => a.start.localeCompare(b.start) || a.title.localeCompare(b.title));
+	if (!items.length) return null;
+	const fs = TEXT[set.textSize].font - 1;
+	const rowH = Math.round(fs * 1.75);
+	const cols = Math.max(1, Math.min(items.length, Math.floor(width / 300), 3));
+	const perCol = Math.ceil(items.length / cols);
+	const colW = width / cols;
+	const headH = 22;
+	const g = svgEl("g", {});
+	const heading = set.tableDeadlines ? "MILESTONES AND DEADLINES" : "MILESTONES";
+	text(g, 0, 8, heading, { fill: theme.inkMuted, "font-size": 9.5, "font-weight": 700, "letter-spacing": "0.08em" });
+	svgEl("line", { x1: 0, x2: width, y1: 17.5, y2: 17.5, stroke: theme.axis }, g);
+	const dateW = measure("30 Sep", 600, fs) + 10;
+	items.forEach((it, k) => {
+		const col = Math.floor(k / perCol), row = k % perCol;
+		const x = col * colW, y = headH + row * rowH + rowH / 2;
+		const day = toDay(it.start);
+		const color = it.type === "deadline" ? theme.deadline : theme.palette[project.phases.find((p) => p.id === it.phase)?.color ?? "blue"];
+		if (it.type === "deadline") {
+			svgEl("line", { x1: x + 4, x2: x + 4, y1: y - 6, y2: y + 6, stroke: color, "stroke-width": 1.6, "stroke-linecap": "round" }, g);
+			svgEl("path", { d: `M${x + 4.5},${y - 6} L${x + 12},${y - 3} L${x + 4.5},${y} Z`, fill: color }, g);
+		} else {
+			const r = 5.5;
+			svgEl("path", { d: `M${x + 6},${y - r} L${x + 6 + r},${y} L${x + 6},${y + r} L${x + 6 - r},${y} Z`, fill: color, stroke: theme.ink, "stroke-width": 1, "stroke-linejoin": "round" }, g);
+		}
+		text(g, x + 18, y, formatDay(day, false), { fill: theme.ink, "font-size": fs, "font-weight": 600 });
+		// How far off it is (or that it's done).
+		let status = "", statusColor = theme.inkMuted;
+		if (isDone(it)) [status, statusColor] = ["✓ done", "#1baf7a"];
+		else if (today != null) {
+			const d = day - today;
+			status = d === 0 ? "today" : d > 0 ? `in ${formatDuration(d)}` : `${formatDuration(-d)} ago`;
+			if (d < 0) statusColor = theme.deadline;
+		}
+		const statusW = status ? measure(status, 400, fs - 0.5) : 0;
+		const nameX = x + 18 + dateW;
+		const nameMax = colW - (nameX - x) - statusW - 22;
+		text(g, nameX, y, fit(it.title, nameMax, measure, it.type === "deadline" ? 600 : 500, fs), {
+			fill: it.type === "deadline" ? theme.deadline : theme.ink, "font-size": fs, "font-weight": it.type === "deadline" ? 600 : 500,
+		});
+		if (status) text(g, x + colW - 16, y, status, { fill: statusColor, "font-size": fs - 0.5, "text-anchor": "end" });
+		if (row < perCol - 1 && k < items.length - 1)
+			svgEl("line", { x1: x, x2: x + colW - 16, y1: y + rowH / 2, y2: y + rowH / 2, stroke: theme.grid }, g);
+	});
+	return { node: g, height: headH + perCol * rowH };
+}
+
+function fit(s: string, max: number, measure: Measure, weight: number, size: number): string {
+	if (measure(s, weight, size) <= max) return s;
+	let lo = 0, hi = s.length;
+	while (lo < hi) {
+		const mid = (lo + hi + 1) >> 1;
+		if (measure(s.slice(0, mid).trimEnd() + "…", weight, size) <= max) lo = mid;
+		else hi = mid - 1;
+	}
+	return s.slice(0, lo).trimEnd() + "…";
 }
 
 /** The same layout with only some lanes, stacked from the top. */

@@ -83,6 +83,8 @@ export interface PaintOptions {
 	tool?: "hand" | "select" | "draw";
 	/** Print styling: stronger deadline rules for paper. */
 	print?: boolean;
+	/** Leave out the arrows between linked items (a print option). */
+	hideLinks?: boolean;
 	flashId?: string | null;
 	interactive?: boolean;
 	/** Visible horizontal window [from, to] in timeline px; header labels stay inside it while scrolling. */
@@ -352,7 +354,7 @@ export function paintBody(layout: Layout, o: PaintOptions): SVGSVGElement {
 		svgEl("line", { x1: x, x2: x, y1: 0, y2: layout.bodyH, stroke: theme.accent, "stroke-width": 1.5, "pointer-events": "none" }, svg);
 	}
 
-	const detach = layout.on("links") ? paintLinks(svg, layout, o) : null;
+	const detach = layout.on("links") && !o.hideLinks ? paintLinks(svg, layout, o) : null;
 
 	const items = svgEl("g", { class: "sg-items" }, svg);
 	const bufferIds = new Map<string, string>();

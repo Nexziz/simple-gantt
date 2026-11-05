@@ -8,6 +8,7 @@ import { baselineSummary, driftOf, saveBaseline } from "../src/core/baseline";
 import { toCsv, toMarkdownTable } from "../src/core/table";
 import { agenda } from "../src/core/agenda";
 import { applyImport, parseImport } from "../src/core/importer";
+import { DEFAULT_PRINT, pageSize, printSettingsOf } from "../src/core/printSettings";
 import { isOn, setFeature } from "../src/core/features";
 import { computeLayout } from "../src/core/layout";
 import { createFromTemplate } from "../src/core/templates";
@@ -364,6 +365,32 @@ t("a Plan B that carries on from its task is drawn on the task's row; a later on
 	assert.equal(at("e1~planb").cy, at("e1").cy);
 	assert.ok(at("e1").squareRight, "the task's end joins the dashed extension");
 	assert.equal(at("x1~planb").attachedTo, undefined, "a Plan B weeks later stays separate");
+});
+
+t("print settings: saved in the note, only what differs from the defaults", () => {
+	const p = cloneProject(SAMPLE);
+	p.print = { paper: "a3", milestoneTable: false, spacing: "roomy", textSize: "normal" };
+	const plain = toPlain(p) as { print?: Record<string, unknown> };
+	assert.deepEqual(plain.print, { paper: "a3", spacing: "roomy", milestoneTable: false }, "defaults aren't written");
+	const back = normalizeProject({ ...plain, print: { ...plain.print, paper: "a2", today: "yes" } });
+	assert.deepEqual(back.print, { spacing: "roomy", milestoneTable: false }, "unknown values are dropped");
+	assert.equal(printSettingsOf(back.print).paper, DEFAULT_PRINT.paper);
+	assert.deepEqual(pageSize({ ...DEFAULT_PRINT, paper: "a4", orientation: "portrait" }), { w: 794, h: 1123, wPt: 595.28, hPt: 841.89 });
+});
+
+t("labels never run off the chart: other side, then without the date, then shortened", () => {
+	const measure = (s: string) => s.length * 7;
+	const p = normalizeProject({
+		start: "2027-01-01", end: "2027-03-31",
+		phases: [{ id: "a", name: "A" }],
+		items: [{ id: "t", type: "task", title: "SBOM creation with vulnerability mapping, with adviser", phase: "a", start: "2027-02-01", end: "2027-02-14" }],
+	});
+	for (const pxPerDay of [2, 3, 5]) {
+		const lay = computeLayout(p, { pxPerDay, showEmptyLanes: false, measure, print: true });
+		const t = lay.placed.find((x) => x.item.id === "t")!;
+		const x0 = t.labelAnchor === "end" ? t.labelX - t.labelW : t.labelX;
+		assert.ok(x0 >= 0 && x0 + t.labelW <= lay.width, `inside the chart at ${pxPerDay}px/day (${Math.round(x0)}..${Math.round(x0 + t.labelW)} of ${lay.width})`);
+	}
 });
 
 console.log(failed ? `\n${failed} failed` : `\nall nudge/journal/link/feature tests passed`);

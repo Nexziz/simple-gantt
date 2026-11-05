@@ -1365,3 +1365,50 @@
 .sg-body .sg-deadline-hit { cursor: pointer; }
 .sg-body .sg-deadline-rule { transition: opacity 0.15s, stroke-width 0.15s; }
 .sg-body .sg-deadline-rule.is-hot { opacity: 1; stroke-width: 2px; stroke-dasharray: none; }
+
+/* ── Print window ────────────────────────────────────────────────── */
+.sg-root .sg-print-overlay {
+	position: absolute;
+	inset: 0;
+	z-index: 40;
+	display: flex;
+	padding: 16px;
+	background: rgba(0, 0, 0, 0.32);
+	animation: sg-fade 0.15s ease-out;
+}
+.sg-root .sg-print {
+	flex: 1;
+	display: flex;
+	min-height: 0;
+	min-width: 0;
+	overflow: hidden;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 14px;
+	background: var(--background-primary);
+	box-shadow: var(--shadow-l);
+}
+.sg-root .sg-print-side {
+	flex: none;
+	width: 300px;
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	border-right: 1px solid var(--background-modifier-border);
+}
+.sg-root .sg-print-controls { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding: 4px 16px 16px; }
+.sg-root .sg-print-controls .sg-section-title { margin-top: 4px; }
+.sg-root .sg-print-controls .sg-feature.is-nested { margin-left: 14px; }
+.sg-root .sg-print-controls .sg-feature.is-disabled { opacity: 0.45; }
+.sg-root .sg-print-controls .sg-link-btn { align-self: flex-start; }
+.sg-root .sg-print-main { flex: 1; min-width: 0; overflow: auto; padding: 22px; background: var(--background-secondary); }
+.sg-root .sg-print-pages { display: flex; flex-direction: column; align-items: center; gap: 20px; }
+.sg-root .sg-print-sheet { width: 100%; max-width: 1040px; line-height: 0; background: #ffffff; box-shadow: 0 4px 18px rgba(0, 0, 0, 0.18); }
+.sg-root .sg-print-sheet.is-portrait { max-width: 620px; }
+.sg-root .sg-print-sheet svg { display: block; width: 100%; height: auto; }
+.sg-root .sg-print-foot { display: flex; flex-direction: column; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--background-modifier-border); }
+.sg-root .sg-print-foot .sg-hint { margin: 0; }
+.sg-root .sg-print-buttons { display: flex; justify-content: flex-end; gap: 8px; }
+@container (max-width: 720px) {
+	.sg-root .sg-print { flex-direction: column; }
+	.sg-root .sg-print-side { width: auto; max-height: 50%; border-right: none; border-bottom: 1px solid var(--background-modifier-border); }
+}

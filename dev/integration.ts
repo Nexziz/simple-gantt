@@ -447,7 +447,7 @@ function check(cond: unknown, msg: string) {
 		const menuBtn = [...document.querySelectorAll(".sg-toolbar .sg-btn")].find((b) => b.textContent?.includes("Export")) as HTMLButtonElement;
 		menuBtn.click();
 		const exportItems = [...document.querySelectorAll(".sg-menu .sg-menu-item")].map((b) => b.textContent ?? "");
-		check(exportItems[0]?.startsWith("PDF for printing") && exportItems.some((t) => t.startsWith("Import")), "the Export menu offers an A4 PDF first, and Import");
+		check(exportItems[0]?.startsWith("Print / PDF") && exportItems.some((t) => t.startsWith("Import")), "the Export menu offers printing first, and Import");
 		key("Escape");
 
 		const mermaid = "```mermaid\ngantt\n  dateFormat YYYY-MM-DD\n  section Fieldwork\n  Ethics approval :done, eth, 2027-01-04, 2w\n  Interviews      :int, after eth, 4w\n  Data complete   :milestone, 2027-03-01, 0d\n```";
@@ -505,7 +505,8 @@ function check(cond: unknown, msg: string) {
 		const sheet = renderPrintPages(printProject, { today: 20761 })[0];
 		const words = [...sheet.querySelectorAll("text")].map((t) => t.textContent ?? "");
 		check(!words.some((w) => /^(PHASES|KEY|DEADLINES|PHASE)$/.test(w) || /\d+ items? ·/.test(w)), "the printout has no legend, deadline band or item counts");
-		check(deadlineTitles.length > 0 && deadlineTitles.every((d: string) => words.filter((w) => w.startsWith(d)).length === 1), `each deadline is named once (${deadlineTitles.length} deadlines)`);
+		// (The countdown by the title, "… in 6 months", is a summary rather than the deadline itself.)
+		check(deadlineTitles.length > 0 && deadlineTitles.every((d: string) => words.filter((w) => w.startsWith(`${d} ·`)).length === 1), `each deadline is named once in the chart (${deadlineTitles.length} deadlines)`);
 		// Arrows: the cases from the sketches each take one straight drop or a single bend.
 		const sketch = normalizeProject({
 			title: "Arrows", start: "2026-11-01", end: "2027-08-31",
@@ -530,6 +531,38 @@ function check(cond: unknown, msg: string) {
 		})();
 		check(dropLen >= 18, `rows on paper leave room for a readable arrow between a task and its milestone (${Math.round(dropLen)}px)`);
 		check(bends("rd fd") <= 1 && bends("rv pf") <= 1, `an arrow to a step that starts further out leaves from the side, then goes down (${bends("rd fd")}, ${bends("rv pf")} bends)`);
+		// The print window: settings on the left, a live preview on the right, saved with the timeline.
+		key("Escape");
+		key("Escape");
+		type("*Chapter 3 drafted 30 Apr");
+		const exportBtn2 = [...document.querySelectorAll(".sg-toolbar .sg-btn")].find((b) => b.textContent?.includes("Export")) as HTMLButtonElement;
+		exportBtn2.click();
+		([...document.querySelectorAll(".sg-menu .sg-menu-item")].find((b) => b.textContent?.startsWith("Print / PDF")) as HTMLButtonElement).click();
+		await sleep(150);
+		const sheets = () => [...document.querySelectorAll(".sg-print-sheet svg")];
+		check(document.querySelector(".sg-print-overlay") && sheets().length >= 1, "Print / PDF… opens the print window with a preview");
+		const sheetText = () => sheets().flatMap((svg) => [...svg.querySelectorAll("text")].map((t) => t.textContent ?? "")).join(" | ");
+		check(/MILESTONES/.test(sheetText()), "the preview has the milestone table");
+		const tableSwitch = document.querySelector('[data-print="milestoneTable"]') as HTMLInputElement;
+		tableSwitch.checked = false;
+		tableSwitch.dispatchEvent(new Event("change"));
+		await sleep(80);
+		check(!/MILESTONES/.test(sheetText()), "switching the table off updates the preview");
+		([...document.querySelectorAll(".sg-print .sg-seg button")].find((b) => b.textContent === "A3") as HTMLButtonElement).click();
+		await sleep(80);
+		check(sheets()[0]?.getAttribute("width") === "1587", "choosing A3 changes the page size");
+		await sleep(600);
+		check(/print:\n\s+paper: a3\n\s+milestoneTable: false/.test(await read()), "the print choices are saved in the note");
+		const savePdf = [...document.querySelectorAll(".sg-print-buttons .sg-btn")].find((b) => b.textContent?.includes("Save PDF")) as HTMLButtonElement;
+		savePdf.click();
+		await sleep(1500);
+		const pdfA3 = app.vault.data.get("Gantt/Renamed in editor.pdf") as ArrayBuffer;
+		check(/\/MediaBox \[0 0 1190\.55 841\.89\]/.test(new TextDecoder("latin1").decode(new Uint8Array(pdfA3))) && !document.querySelector(".sg-print-overlay"), "Save PDF writes an A3 PDF and closes the window");
+		board.openPrintDialog();
+		await sleep(100);
+		([...document.querySelectorAll(".sg-print .sg-link-btn")].find((b) => b.textContent?.includes("standard layout")) as HTMLButtonElement).click();
+		key("Escape");
+		check(!document.querySelector(".sg-print-overlay") && proj().print === undefined, "back to the standard layout, and Esc closes the window");
 		log.push(`notices: ${JSON.stringify(notices)}`);
 		(window as any).__note = await app.vault.read(file);
 	} catch (e) {
