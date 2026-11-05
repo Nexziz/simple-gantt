@@ -115,8 +115,8 @@ The overview panel shows your next deadline, what's on now and what's coming up.
 - **Year overview first.** The board opens on the whole project with a today line. Zoom to **Quarter** or **Month**, or use Ctrl/Cmd + scroll.
 - **Quick add** understands dates, durations, phases, types and progress (see [Quick add](https://github.com/Nexziz/simple-gantt#quick-add)).
 - **Right-click an empty row** to add a task, milestone, deadline or place exactly there, with its name ready to type.
-- **Buffer time:** plan slack for the delays that always come (hatched bars, `~` in quick add).
-- **Plan B / decision points:** *"If this isn't done by 8 Jan, I'll use public data instead."* When the date comes, you decide: switch to Plan B (the original stays, faded, as a record) or carry on.
+- **Buffer time:** plan slack for holidays and the delays that always come (`~` in quick add). A buffer that falls inside a task, or right after it, is drawn as a hatched stretch of that task's bar with its name above.
+- **Plan B / decision points:** *"If this isn't done by 8 Jan, I'll use public data instead."* A Plan B that carries on from its task shows as a dashed extension of the bar. When the date comes, you decide: switch to Plan B (the original stays, faded, as a record) or carry on.
 - **Templates:** *Dissertation* (twelve months of research phases) or *Blank*.
 - **Import** from Excel, Google Sheets, Numbers, CSV/TSV, Markdown tables, Mermaid `gantt` charts or a plain list (one item per line, written like quick add; Markdown headings become phases, `- [x]` means done). Columns are recognised by name (Task, Phase, Start, End, Duration, % Complete, Status, Predecessors…), day-first and month-first dates are told apart, and links come along.
 </details>
@@ -127,7 +127,7 @@ The overview panel shows your next deadline, what's on now and what's coming up.
 - **Move around like on a Canvas:** drag empty space (or use the middle mouse button) to scroll the chart, and Ctrl/Cmd + scroll to zoom. The tools in the chart's corner switch what a drag on empty space does: move around (<kbd>H</kbd>, the default), select (<kbd>V</kbd>) or draw tasks (<kbd>D</kbd>).
 - **Drag** bars to move them, drag their edges to resize, or drag a task into another phase. This works with every tool. Hold <kbd>Shift</kbd> to move everything after it too.
 - **Select several:** use the select tool (<kbd>V</kbd>), <kbd>Shift</kbd>-drag a box on empty space, <kbd>Shift</kbd>/<kbd>Ctrl</kbd>-click, or press <kbd>Ctrl</kbd>+<kbd>A</kbd>. A small bar moves the selection by a week, links it in date order, ticks it off, duplicates or deletes it.
-- **Links** keep the order: when something slips, everything linked after it moves too. Arrows have clean right angles, enter milestones from the top and leave from the bottom. If a deadline would be missed, the arrow turns red and you get a warning.
+- **Links** keep the order: when something slips, everything linked after it moves too. Each arrow takes the simplest clear path: straight down when the next step starts under the previous one, otherwise out of the side and down onto it, avoiding other bars and labels where it can. If a deadline would be missed, the arrow turns red and you get a warning.
 - **Detach a link** by clicking its line, then **×** or <kbd>Delete</kbd>.
 - **Deadlines are easy to follow:** each one has a red flag on the date ruler and a dashed red line through the chart. Hover the line for its name and date, or click it to open the deadline.
 - **Rename in place** by double-clicking or pressing <kbd>F2</kbd>. **Duplicate** with <kbd>Ctrl</kbd>+<kbd>D</kbd>. **Undo** anything with <kbd>Ctrl</kbd>+<kbd>Z</kbd>.

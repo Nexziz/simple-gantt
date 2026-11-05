@@ -363,7 +363,9 @@ export function paintBody(layout: Layout, o: PaintOptions): SVGSVGElement {
 			return `url(#${id})`;
 		},
 	};
-	for (const p of layout.placed) paintItem(items, p, layout, o, fills);
+	// A Plan B that continues a task goes underneath it, so only the part past the task's end shows.
+	const under = (p: Placed) => p.kind === "ghost" && !!p.attachedTo;
+	for (const p of [...layout.placed.filter(under), ...layout.placed.filter((p) => !under(p))]) paintItem(items, p, layout, o, fills);
 	// The selected link's detach button sits on top of everything.
 	if (detach) {
 		const [x, y] = detach;
@@ -527,6 +529,7 @@ function paintLinks(svg: SVGSVGElement, layout: Layout, o: PaintOptions): Pt | n
 	const byId = new Map(layout.placed.filter((p) => p.kind === "item").map((p) => [p.item.id, p]));
 	const g = svgEl("g", { class: "sg-links", fill: "none", "pointer-events": "none" }, svg);
 	let detach: Pt | null = null;
+	const obstacles = obstaclesOf(layout, !!o.print);
 	for (const succ of byId.values()) {
 		for (const id of succ.item.after ?? []) {
 			const pred = byId.get(id);
@@ -535,10 +538,10 @@ function paintLinks(svg: SVGSVGElement, layout: Layout, o: PaintOptions): Pt | n
 			if (o.print && Math.abs(layout.lanes.indexOf(pred.lane) - layout.lanes.indexOf(succ.lane)) > 1) continue;
 			// …and so is one into a buffer that's drawn as part of its task's bar.
 			if (o.print && succ.attachedTo) continue;
-			const pts = routeLink(pred, succ, layout);
+			const pts = routeLink(pred, succ, layout, obstacles, !!o.print);
 			if (!pts) continue;
 			const bad = succ.startDay < earliestAfter(pred.item, succ.item);
-			const color = bad ? theme.deadline : theme.inkMuted;
+			const color = bad ? theme.deadline : o.print ? theme.inkSecondary : theme.inkMuted;
 			// Links to or from a deadline duplicate its dashed rule: on screen they show on hover, on paper not at all.
 			const touchesDeadline = pred.item.type === "deadline" || succ.item.type === "deadline";
 			if (touchesDeadline && !bad && !o.interactive) continue;
@@ -549,7 +552,7 @@ function paintLinks(svg: SVGSVGElement, layout: Layout, o: PaintOptions): Pt | n
 			const cls = `sg-link${bad ? " is-bad" : ""}${quiet ? " is-quiet" : ""}${selected ? " is-selected" : ""}${crit}`;
 			const link = svgEl("g", { class: cls, "data-link": key }, g);
 			const d = roundedPath(pts, 5);
-			const attrs = { stroke: color, "stroke-linecap": "round", "stroke-linejoin": "round", opacity: bad ? 0.9 : o.print ? 0.45 : 0.6 };
+			const attrs = { stroke: color, "stroke-linecap": "round", "stroke-linejoin": "round", opacity: bad ? 0.9 : o.print ? 0.7 : 0.6 };
 			svgEl("path", { d, ...attrs, "stroke-width": bad ? 1.6 : 1.35, class: "sg-link-line" }, link);
 			svgEl("path", { d: arrowHead(pts), ...attrs, fill: color, "stroke-width": 1, class: "sg-link-head" }, link);
 			// A wide invisible stroke makes the thin line easy to hover and click.
@@ -576,49 +579,117 @@ function midpoint(pts: Pt[]): Pt {
 
 type Pt = [number, number];
 
+interface Box { x0: number; y0: number; x1: number; y1: number }
+/** Something an arrow should avoid: a mark itself, or its label. */
+interface Obstacle { box: Box; owner: Placed; mark: boolean }
+
+/** Everything an arrow should avoid running through: marks, their labels and buffer captions. */
+function obstaclesOf(layout: Layout, print: boolean): Obstacle[] {
+	const out: Obstacle[] = [];
+	const fs = layout.g.fontSize;
+	for (const p of layout.placed) {
+		const h = halfHeight(p, print);
+		out.push({ owner: p, mark: true, box: { x0: p.x0, y0: p.cy - h, x1: p.x1, y1: p.cy + h } });
+		if (!p.label || p.labelInside) continue;
+		const lx0 = p.labelAnchor === "end" ? p.labelX - p.labelW : p.labelX;
+		const above = !!p.attachedTo;
+		const ly = above ? p.cy - p.lane.markH / 2 - fs / 2 - 1.5 : p.cy;
+		out.push({ owner: p, mark: false, box: { x0: lx0, y0: ly - fs * 0.55, x1: lx0 + p.labelW, y1: ly + fs * 0.55 } });
+	}
+	return out;
+}
+
+/** Half the height of a mark, from its centre to the edge an arrow touches. */
+function halfHeight(p: Placed, print: boolean): number {
+	const t = p.item.type;
+	if (p.kind !== "item" || t === "task" || t === "location") return p.lane.markH / 2;
+	if (t === "milestone") return (print ? 9.5 : 8.5) + 0.8;
+	if (t === "deadline") return 8.5;
+	return 6.5;
+}
+
 /**
- * Orthogonal route for a finish-to-start link. It leaves from just under (or over) the end of the
- * predecessor, so it never crosses that item's label, and drops onto the starting corner of the
- * next bar, so a chain of steps reads as a staircase. Milestones, deadlines and key dates are
- * entered through their top (or bottom) point.
+ * The route for a finish-to-start link. A few clean shapes are tried and the one that runs through the
+ * fewest other bars and labels wins, with fewer bends breaking ties:
+ *  - straight down (or up) when the next step starts under the previous one,
+ *  - out of the side of the previous step, then down onto the top of the next one (┐),
+ *  - down from the previous step, then into the side of the next one (└→),
+ *  - a staircase through the gap above the next step, only when nothing simpler is clear.
+ * Arrows always end on the edge of the mark they point at.
  */
-function routeLink(pred: Placed, succ: Placed, layout: Layout): Pt[] | null {
-	const down = succ.cy > pred.cy;
-	const sign = down ? 1 : -1;
+function routeLink(pred: Placed, succ: Placed, layout: Layout, obstacles: Obstacle[], print: boolean): Pt[] | null {
+	const sign = succ.cy > pred.cy ? 1 : -1;
 	const point = (p: Placed) => p.item.type !== "task" && p.item.type !== "location";
-	const predHalf = point(pred) ? 9 : pred.lane.markH / 2;
-	const succHalf = point(succ) ? 10 : succ.lane.markH / 2;
-	const sx = point(pred) ? (pred.x0 + pred.x1) / 2 : pred.x1 - Math.min(7, (pred.x1 - pred.x0) / 2);
-	const sy = pred.cy + sign * predHalf;
-	const tx = succ.x0 - 2;
-	const ty = succ.cy;
+	const pc = (pred.x0 + pred.x1) / 2, sc = (succ.x0 + succ.x1) / 2;
+	const ph = halfHeight(pred, print), sh = halfHeight(succ, print);
+	const pEdge = pred.cy + sign * ph;
+	const sEdge = succ.cy - sign * sh;
 
 	if (Math.abs(pred.cy - succ.cy) < 1) {
 		// Same row: a short straight line from the end of the predecessor's footprint (bar or label).
 		const from = pred.labelInside || !pred.labelW || pred.labelAnchor === "end" ? pred.x1 + 2 : pred.labelX + pred.labelW + 6;
-		return tx - from >= 10 ? [[from, ty], [tx, ty]] : null;
+		const to = succ.x0 - 1;
+		return to - from >= 10 ? [[from, succ.cy], [to, succ.cy]] : null;
 	}
-	const edge = succ.cy - sign * (succHalf + 2);
-	const gap = succ.cy - sign * (succHalf + (layout.g.rowPitch - layout.g.barH) / 2 + 2);
-	if (point(succ)) {
-		const cx = (succ.x0 + succ.x1) / 2;
-		// Right under the predecessor: a straight drop.
-		if (point(pred) ? Math.abs(cx - sx) < 1 : cx >= pred.x0 + 3 && cx <= pred.x1 - 1) return [[cx, sy], [cx, edge]];
-		// Nothing to the right of the predecessor: leave from its end, across, then down onto the point.
-		const clear = !pred.labelW || pred.labelAnchor === "end" || (!point(pred) && pred.labelInside);
-		const ex = pred.x1 + 1;
-		if (clear && cx - ex >= 4) return [[ex, pred.cy], [cx, pred.cy], [cx, edge]];
-		return [[sx, sy], [sx, gap], [cx, gap], [cx, edge]];
+
+	// Where the arrow may leave the predecessor and land on the successor.
+	// (A bar may be left from just past its end: where one step ends and the next begins, a straight drop.)
+	const pRange: [number, number] = point(pred) ? [pc, pc] : [pred.x0 + 2, pred.x1 + 3];
+	const sRange: [number, number] = point(succ) ? [sc, sc] : [succ.x0 + Math.min(1, (succ.x1 - succ.x0) / 2), succ.x1 - 2];
+	const want = point(succ) ? sc : succ.x0 + Math.min(8, (succ.x1 - succ.x0) / 2);
+	const pSide = point(pred) ? pc + ph + 1 : pred.x1 + 1;
+	const pEnd = point(pred) ? pc : pred.x1 - Math.min(6, (pred.x1 - pred.x0) / 2);
+	const sSide = point(succ) ? sc - sh - 1 : succ.x0 - 1;
+	const gapY = sEdge - sign * Math.max(4, Math.min(10, (layout.g.rowPitch - layout.g.barH) / 2));
+
+	const options: { pts: Pt[]; bends: number }[] = [];
+	// Straight drop.
+	const lo = Math.max(pRange[0], sRange[0]), hi = Math.min(pRange[1], sRange[1]);
+	if (lo <= hi + 0.01) {
+		const x = Math.min(hi, Math.max(lo, want));
+		options.push({ pts: [[x, pEdge], [x, sEdge]], bends: 0 });
 	}
-	// Into a bar: arrive from above (or below) on its starting corner, so a chain of steps reads as a staircase.
-	const cx = succ.x0 + Math.min(5, (succ.x1 - succ.x0) / 2);
-	const range: [number, number] = point(pred) ? [sx - 3, sx + 3] : [pred.x0 + 3, pred.x1 + 4];
-	// Starts under the predecessor (or right at its end): one straight drop.
-	if (cx >= range[0] && cx <= range[1]) return [[cx, sy], [cx, edge]];
-	// Starts later: down from the predecessor's end, across just above the successor, then down onto its corner.
-	if (cx > range[1]) return [[sx, sy], [sx, gap], [cx, gap], [cx, edge]];
-	// Fully backwards: come round through the gap and enter from the left.
-	return [[sx, sy], [sx, gap], [tx - 10, gap], [tx - 10, ty], [tx, ty]];
+	// Out of the side, then down onto the top.
+	const tx = point(succ) ? sc : Math.min(sRange[1], Math.max(want, pSide + 6));
+	if (tx - pSide >= 4) options.push({ pts: [[pSide, pred.cy], [tx, pred.cy], [tx, sEdge]], bends: 1 });
+	// Down, then into the side.
+	if (sSide - pEnd >= 8) options.push({ pts: [[pEnd, pEdge], [pEnd, succ.cy], [sSide, succ.cy]], bends: 1.5 });
+	// Staircase through the gap next to the successor.
+	if (Math.abs(want - pEnd) >= 2) options.push({ pts: [[pEnd, pEdge], [pEnd, gapY], [want, gapY], [want, sEdge]], bends: 2.5 });
+	// Fully backwards: round through the gap and in from the left.
+	options.push({ pts: [[pEnd, pEdge], [pEnd, gapY], [sSide - 10, gapY], [sSide - 10, succ.cy], [sSide, succ.cy]], bends: 4 });
+
+	let best: Pt[] | null = null, bestCost = Infinity;
+	for (const o of options) {
+		const cost = crossings(o.pts, obstacles, pred, succ) * 100 + o.bends * 3 + pathLength(o.pts) / 400;
+		if (cost < bestCost) [best, bestCost] = [o.pts, cost];
+	}
+	return best;
+}
+
+/** How many marks or labels a route runs through (its own two ends don't count). */
+function crossings(pts: Pt[], obstacles: Obstacle[], pred: Placed, succ: Placed): number {
+	let n = 0;
+	for (const { box, owner, mark } of obstacles) {
+		// The two marks the route connects are its endpoints; their labels still count.
+		if (mark && (owner === pred || owner === succ)) continue;
+		const b = { x0: box.x0 + 1, y0: box.y0 + 1, x1: box.x1 - 1, y1: box.y1 - 1 };
+		for (let i = 1; i < pts.length; i++) {
+			const [ax, ay] = pts[i - 1], [bx, by] = pts[i];
+			const sx0 = Math.min(ax, bx), sx1 = Math.max(ax, bx), sy0 = Math.min(ay, by), sy1 = Math.max(ay, by);
+			if (sx1 >= b.x0 && sx0 <= b.x1 && sy1 >= b.y0 && sy0 <= b.y1) {
+				n++;
+				break;
+			}
+		}
+	}
+	return n;
+}
+
+function pathLength(pts: Pt[]): number {
+	let l = 0;
+	for (let i = 1; i < pts.length; i++) l += Math.abs(pts[i][0] - pts[i - 1][0]) + Math.abs(pts[i][1] - pts[i - 1][1]);
+	return l;
 }
 
 /** A polyline with softly rounded corners (radius r, never more than half of either segment). */
@@ -642,8 +713,8 @@ function arrowHead(pts: Pt[]): string {
 	const [px, py] = pts[pts.length - 2];
 	const len = Math.hypot(x - px, y - py) || 1;
 	const ux = (x - px) / len, uy = (y - py) / len;
-	const bx = x - ux * 6, by = y - uy * 6;
-	return `M${x},${y} L${bx - uy * 3.5},${by + ux * 3.5} L${bx + uy * 3.5},${by - ux * 3.5} Z`;
+	const bx = x - ux * 7, by = y - uy * 7;
+	return `M${x},${y} L${bx - uy * 4},${by + ux * 4} L${bx + uy * 4},${by - ux * 4} Z`;
 }
 
 /** Where an item sat in the saved plan, drawn as a faint dashed outline when it has moved since. */
@@ -699,12 +770,19 @@ function paintDerived(g: SVGGElement, p: Placed, layout: Layout, o: PaintOptions
 	}
 	if (p.kind === "ghost") {
 		const top = p.cy - layout.g.barH / 2;
-		svgEl("rect", {
-			x: p.x0 + 0.75, y: top + 0.75, width: Math.max(2, p.x1 - p.x0 - 1.5), height: layout.g.barH - 1.5, rx: 6,
+		const w = Math.max(2, p.x1 - p.x0 - 1.5);
+		svgEl("path", {
+			d: barPath(p.x0 + 0.75, top + 0.75, w, layout.g.barH - 1.5, 6, !p.squareLeft, !p.squareRight),
 			fill: color, "fill-opacity": 0.1, stroke: color, "stroke-width": 1.5, "stroke-dasharray": "5 3",
 			class: "sg-mark", "data-part": "body",
 		}, g);
-		text(g, p.labelX, p.cy, p.label, { ...labelAttrs, ...(p.labelInside ? {} : halo(theme)), fill: p.labelInside ? color : theme.inkSecondary, "font-style": "italic", "font-weight": 600 });
+		if (p.attachedTo) {
+			// A dashed extension of its task (drawn under the bar), named just above.
+			text(g, p.labelX, top - layout.g.fontSize / 2 - 1.5, p.label, {
+				...labelAttrs, ...halo(theme), "text-anchor": p.labelAnchor, "font-size": layout.g.fontSize - 1.5,
+				fill: theme.inkSecondary, "font-style": "italic",
+			});
+		} else text(g, p.labelX, p.cy, p.label, { ...labelAttrs, ...(p.labelInside ? {} : halo(theme)), fill: p.labelInside ? color : theme.inkSecondary, "font-style": "italic", "font-weight": 600 });
 	} else if (p.kind === "decision") {
 		const r = 7;
 		const due = p.state === "due";

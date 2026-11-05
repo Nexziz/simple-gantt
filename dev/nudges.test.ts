@@ -347,5 +347,24 @@ t("buffers sit on their task's row, joined to it, with the task's label moved pa
 	assert.ok(at("s1").labelInside || at("s1").labelX >= at("sb").x1, "the task's own label doesn't sit on the buffer");
 });
 
+t("a Plan B that carries on from its task is drawn on the task's row; a later one keeps its own", () => {
+	const p = normalizeProject({
+		start: "2026-11-01", end: "2027-03-31",
+		phases: [{ id: "d", name: "Data" }],
+		items: [
+			{ id: "e1", type: "task", title: "Get an ECU", phase: "d", start: "2026-11-10", end: "2026-12-04",
+				planB: { by: "2026-11-27", title: "Public image", start: "2026-11-30", end: "2026-12-11" } },
+			{ id: "x1", type: "task", title: "Ethics", phase: "d", start: "2026-11-01", end: "2026-11-20",
+				planB: { by: "2027-01-08", title: "Secondary data", start: "2027-01-18", end: "2027-02-20" } },
+		],
+	});
+	const lay = computeLayout(p, { pxPerDay: 3, showEmptyLanes: false, measure: (s: string) => s.length * 6, print: true, today });
+	const at = (id: string) => lay.placed.find((x) => x.item.id === id)!;
+	assert.equal(at("e1~planb").attachedTo, "e1");
+	assert.equal(at("e1~planb").cy, at("e1").cy);
+	assert.ok(at("e1").squareRight, "the task's end joins the dashed extension");
+	assert.equal(at("x1~planb").attachedTo, undefined, "a Plan B weeks later stays separate");
+});
+
 console.log(failed ? `\n${failed} failed` : `\nall nudge/journal/link/feature tests passed`);
 if (failed) process.exit(1);

@@ -3,6 +3,7 @@ import { App, notices } from "obsidian";
 import SimpleGanttPlugin from "../src/main";
 import { isOn } from "../src/core/features";
 import { renderPrintPages } from "../src/core/print";
+import { normalizeProject } from "../src/core/serialize";
 
 const log: string[] = [];
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -505,6 +506,25 @@ function check(cond: unknown, msg: string) {
 		const words = [...sheet.querySelectorAll("text")].map((t) => t.textContent ?? "");
 		check(!words.some((w) => /^(PHASES|KEY|DEADLINES|PHASE)$/.test(w) || /\d+ items? ·/.test(w)), "the printout has no legend, deadline band or item counts");
 		check(deadlineTitles.length > 0 && deadlineTitles.every((d: string) => words.filter((w) => w.startsWith(d)).length === 1), `each deadline is named once (${deadlineTitles.length} deadlines)`);
+		// Arrows: the cases from the sketches each take one straight drop or a single bend.
+		const sketch = normalizeProject({
+			title: "Arrows", start: "2026-11-01", end: "2027-08-31",
+			phases: [{ id: "d", name: "Data" }, { id: "w", name: "Writing" }, { id: "s", name: "Submission" }],
+			items: [
+				{ id: "e1", type: "task", title: "Selection and acquisition of ECU", phase: "d", start: "2026-11-10", end: "2026-12-04",
+					planB: { by: "2026-11-27", title: "Public image", start: "2026-11-30", end: "2026-12-11" } },
+				{ id: "em", type: "milestone", title: "ECU in hand", phase: "d", start: "2026-12-04", after: ["e1"] },
+				{ id: "rd", type: "task", title: "Results", phase: "w", start: "2027-06-01", end: "2027-07-30" },
+				{ id: "fd", type: "milestone", title: "Full draft", phase: "w", start: "2027-08-02", after: ["rd"] },
+				{ id: "rv", type: "task", title: "Revisions", phase: "s", start: "2027-08-02", end: "2027-08-20", after: ["fd"] },
+				{ id: "pf", type: "task", title: "Proofread", phase: "s", start: "2027-08-21", end: "2027-08-25", after: ["rv"] },
+			],
+		});
+		const sheetA = renderPrintPages(sketch, { today: 20761 })[0];
+		const bends = (key: string) => (sheetA.querySelector(`.sg-link[data-link="${key}"] .sg-link-line`)?.getAttribute("d")?.match(/Q/g) ?? []).length;
+		const drawn = ["e1 em", "rd fd", "fd rv", "rv pf"].filter((k) => sheetA.querySelector(`.sg-link[data-link="${k}"]`));
+		check(drawn.length === 4 && bends("e1 em") === 0 && bends("fd rv") === 0, "an arrow to a step that starts under the previous one drops straight down");
+		check(bends("rd fd") <= 1 && bends("rv pf") <= 1, `an arrow to a step that starts further out leaves from the side, then goes down (${bends("rd fd")}, ${bends("rv pf")} bends)`);
 		log.push(`notices: ${JSON.stringify(notices)}`);
 		(window as any).__note = await app.vault.read(file);
 	} catch (e) {

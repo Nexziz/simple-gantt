@@ -346,10 +346,17 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 			return { mark, item, s, e, label, labelW, x0, x1, labelX, labelInside, labelAnchor, from, to };
 		});
 		// Buffer time sits on the row of the task it belongs to (one it overlaps, or follows within a week),
-		// joined to the bar like an extension of it, with its name above.
+		// joined to the bar like an extension of it, with its name above. A Plan B that runs past the end of
+		// its task is drawn the same way: a dashed extension of the bar.
 		const hostOf = new Map<number, number>();
 		const isTask = (q: (typeof pre)[number]) => q.mark.kind === "item" && q.item.type === "task" && !q.item.dropped;
 		if (!strip && !flat) {
+			pre.forEach((b, i) => {
+				if (b.mark.kind !== "ghost") return;
+				const j = pre.findIndex((t) => isTask(t) && t.item.id === b.mark.parentId);
+				// Only when it carries on from the task (overlaps it or starts within a week of its end).
+				if (j >= 0 && b.e > pre[j].e && b.s - pre[j].e <= 7) hostOf.set(i, j);
+			});
 			pre.forEach((b, i) => {
 				if (!isTask(b) || !b.item.buffer) return;
 				let best = -1, bestScore = Infinity;
@@ -368,8 +375,10 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 				const b = pre[i], t = pre[j];
 				b.labelW = b.label ? opts.measure(b.label, 500, labelSize) : 0;
 				b.labelInside = false;
-				b.labelAnchor = b.x0 + b.labelW + 2 > width ? "end" : "start";
-				b.labelX = b.labelAnchor === "end" ? b.x1 : b.x0 + 1;
+				// Over the part that shows: a Plan B under its task only shows past the task's end.
+				const shown = b.mark.kind === "ghost" ? Math.max(b.x0, t.x1) : b.x0;
+				b.labelAnchor = shown + b.labelW + 2 > width ? "end" : "start";
+				b.labelX = b.labelAnchor === "end" ? b.x1 : shown + 1;
 				b.from = Math.min(t.from, b.x0);
 				b.to = b.x1;
 				// The task's own label moves past the buffer (or out of the bar, if the buffer covers it).
@@ -431,8 +440,9 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 				const b = pre[i], t = pre[j];
 				return { attachedTo: t.item.id, squareLeft: b.s <= t.e + 1, squareRight: b.e < t.e };
 			}
-			const follows = [...hostOf].some(([bi, tj]) => tj === i && pre[bi].s === pre[i].e + 1);
-			return follows ? { squareRight: true } : {};
+			// The task's end is square where something continues it.
+			const continued = [...hostOf].some(([bi, tj]) => tj === i && pre[bi].s <= pre[i].e + 1 && pre[bi].e > pre[i].e);
+			return continued ? { squareRight: true } : {};
 		};
 
 		pre.forEach((p, i) => {

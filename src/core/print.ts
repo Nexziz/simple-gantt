@@ -1,5 +1,5 @@
 import { formatDay, toDay } from "./dates";
-import { Lane, Layout, computeLayout } from "./layout";
+import { COMPACT, Lane, Layout, PRINT_GEOMETRY, computeLayout } from "./layout";
 import { NS, PaintOptions, formatPeriod, makeMeasure, nest, paintBody, paintHeader, paintLabels, svgEl, text } from "./render";
 import { PRINT_THEME, Theme } from "./theme";
 import type { Project } from "./types";
@@ -33,8 +33,9 @@ export function renderPrintPages(project: Project, opts: PrintOptions = {}): SVG
 	// Roomier rows when the plan fits that way; tight print rows otherwise.
 	let layout = computeLayout(project, { pxPerDay: 1, showEmptyLanes: false, measure, density: "print", print: true });
 	const days = layout.viewEnd - layout.viewStart + 1;
-	for (const density of ["compact", "print"] as const) {
-		layout = computeLayout(project, { pxPerDay: timelineW / days, showEmptyLanes: false, measure, density, print: true });
+	// Slim bars with room between the rows, so the arrows between steps are easy to follow.
+	for (const geometry of [{ ...COMPACT, barH: 18, stripH: 16 }, PRINT_GEOMETRY]) {
+		layout = computeLayout(project, { pxPerDay: timelineW / days, showEmptyLanes: false, measure, geometry, print: true });
 		if (layout.bodyH <= room(title1, layout.headerH)) break;
 	}
 	// A plan that fits with room to spare gets airier rows, so the chart fills the sheet instead of leaving it half empty.
