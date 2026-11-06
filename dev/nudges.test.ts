@@ -348,6 +348,69 @@ t("buffers sit on their task's row, joined to it, with the task's label moved pa
 	assert.ok(at("s1").labelInside || at("s1").labelX >= at("sb").x1, "the task's own label doesn't sit on the buffer");
 });
 
+t("buffers chain: one after a vacation joins the same bar, overlapping ones too, captions apart", () => {
+	const p = normalizeProject({
+		start: "2027-01-01", end: "2027-06-30",
+		phases: [{ id: "w", name: "Writing" }],
+		items: [
+			// Listed before its task, and starting weeks after the task ends: it still joins, via the vacation.
+			{ id: "bf", type: "task", buffer: true, title: "Buffer", phase: "w", start: "2027-04-12", end: "2027-04-25" },
+			{ id: "po", type: "task", title: "Poster", phase: "w", start: "2027-03-01", end: "2027-03-25" },
+			{ id: "ev", type: "task", buffer: true, title: "Easter vacation", phase: "w", start: "2027-03-19", end: "2027-04-11", pattern: "dots" },
+			{ id: "wu", type: "task", title: "Write up", phase: "w", start: "2027-01-10", end: "2027-02-20" },
+			{ id: "v1", type: "task", buffer: true, title: "Vacation", phase: "w", start: "2027-02-01", end: "2027-02-14" },
+			{ id: "v2", type: "task", buffer: true, title: "Buffer too", phase: "w", start: "2027-02-08", end: "2027-02-26" },
+		],
+	});
+	const lay = computeLayout(p, { pxPerDay: 3, showEmptyLanes: false, measure: (s: string) => s.length * 6 });
+	const at = (id: string) => lay.placed.find((x) => x.item.id === id)!;
+	assert.equal(at("ev").attachedTo, "po");
+	assert.equal(at("bf").attachedTo, "po", "the buffer after the vacation joins the poster's bar");
+	assert.equal(at("bf").cy, at("po").cy);
+	assert.ok(at("po").squareRight && at("ev").squareLeft, "task and vacation join");
+	assert.ok(at("ev").squareRight && at("bf").squareLeft, "vacation and buffer join");
+	assert.ok(!at("bf").squareRight, "the end of the chain is rounded");
+	assert.ok(at("po").labelInside || at("po").labelX >= at("bf").x1, "the task's name stays in its bar or sits past the whole chain");
+	assert.equal(at("v2").attachedTo, "wu", "a buffer overlapping another buffer joins its task");
+	assert.ok(at("v1").squareRight && at("v2").squareLeft);
+	const c1 = at("v1"), c2 = at("v2");
+	assert.ok(c2.labelX >= c1.labelX + c1.labelW, "overlapping buffers' captions don't write over each other");
+	// A gap of a few days still chains (on the same row, just not touching).
+	p.items.find((i) => i.id === "bf")!.start = "2027-04-16";
+	const lay2 = computeLayout(p, { pxPerDay: 3, showEmptyLanes: false, measure: (s: string) => s.length * 6 });
+	const bf2 = lay2.placed.find((x) => x.item.id === "bf")!;
+	assert.equal(bf2.attachedTo, "po");
+	assert.ok(!bf2.squareLeft, "not touching, so its own rounded start");
+	// A name too long for its bar goes past the whole chain, not onto the vacation.
+	p.items.find((i) => i.id === "po")!.title = "Poster design and printing for the conference";
+	const lay3 = computeLayout(p, { pxPerDay: 3, showEmptyLanes: false, measure: (s: string) => s.length * 6 });
+	const po3 = lay3.placed.find((x) => x.item.id === "po")!, bf3 = lay3.placed.find((x) => x.item.id === "bf")!;
+	assert.ok(!po3.labelInside && (po3.labelX >= bf3.x1 || po3.labelAnchor === "end"), "the long name sits clear of the chain");
+});
+
+t("buffer patterns: saved only when not the default, read leniently, only on buffers", () => {
+	const p = normalizeProject({
+		start: "2027-01-01", end: "2027-06-30",
+		items: [
+			{ id: "a", type: "task", buffer: true, title: "Vacation", start: "2027-02-01", end: "2027-02-14", pattern: "Cross-hatch" },
+			{ id: "b", type: "task", buffer: true, title: "Buffer", start: "2027-03-01", end: "2027-03-14", pattern: "diagonal" },
+			{ id: "c", type: "task", title: "Task", start: "2027-03-01", end: "2027-03-14", pattern: "dots" },
+			{ id: "d", type: "task", buffer: true, title: "Odd", start: "2027-03-01", end: "2027-03-14", pattern: "zigzag" },
+		],
+	});
+	const by = (id: string) => p.items.find((i) => i.id === id)!;
+	assert.equal(by("a").pattern, "crosshatch");
+	assert.equal(by("b").pattern, undefined, "the default isn't stored");
+	assert.equal(by("c").pattern, undefined, "only buffers have a pattern");
+	assert.equal(by("d").pattern, undefined, "unknown patterns are ignored");
+	by("b").pattern = "dots";
+	const back = normalizeProject(toPlain(p));
+	assert.equal(back.items.find((i) => i.id === "a")!.pattern, "crosshatch");
+	assert.equal(back.items.find((i) => i.id === "b")!.pattern, "dots");
+	const plain = toPlain(p) as { items: Record<string, unknown>[] };
+	assert.ok(!("pattern" in plain.items.find((i) => i.id === "c")!));
+});
+
 t("a Plan B that carries on from its task is drawn on the task's row; a later one keeps its own", () => {
 	const p = normalizeProject({
 		start: "2026-11-01", end: "2027-03-31",

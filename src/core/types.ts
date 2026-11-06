@@ -60,7 +60,21 @@ export interface GanttItem {
 	after?: string[];
 	/** Tasks only: slack kept free to absorb delays, drawn hatched. */
 	buffer?: boolean;
+	/** Buffers only: the fill, so a vacation and a buffer can be told apart. Diagonal stripes when unset. */
+	pattern?: BufferPattern;
 }
+
+/** Fills a buffer can have. The first is the default and isn't saved. */
+export const BUFFER_PATTERNS = ["diagonal", "reverse", "crosshatch", "dots", "horizontal", "grid"] as const;
+export type BufferPattern = (typeof BUFFER_PATTERNS)[number];
+export const PATTERN_LABELS: Record<BufferPattern, string> = {
+	diagonal: "Stripes",
+	reverse: "Reverse stripes",
+	crosshatch: "Cross-hatch",
+	dots: "Dots",
+	horizontal: "Lines",
+	grid: "Grid",
+};
 
 /** 1 = rough … 5 = great. */
 export type Mood = 1 | 2 | 3 | 4 | 5;

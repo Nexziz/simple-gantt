@@ -119,7 +119,7 @@ The page itself is kept clean: deadlines in red in one row at the top, each with
 - **Year overview first.** The board opens on the whole project with a today line. Zoom to **Quarter** or **Month**, or use Ctrl/Cmd + scroll.
 - **Quick add** understands dates, durations, phases, types and progress (see [Quick add](https://github.com/Nexziz/simple-gantt#quick-add)).
 - **Right-click an empty row** to add a task, milestone, deadline or place exactly there, with its name ready to type.
-- **Buffer time:** plan slack for holidays and the delays that always come (`~` in quick add). A buffer that falls inside a task, or right after it, is drawn as a hatched stretch of that task's bar with its name above.
+- **Buffer time:** plan slack for holidays and the delays that always come (`~` in quick add). A buffer that falls inside a task, or right after it, is drawn as a patterned stretch of that task's bar with its name above. Buffers chain: a buffer right after a vacation joins the same bar, so task → vacation → buffer reads as one line. Give each buffer its own **pattern** (stripes, reverse stripes, cross-hatch, dots, lines or grid) in its panel or right-click menu, so a vacation and a buffer are easy to tell apart on screen and on paper.
 - **Plan B / decision points:** *"If this isn't done by 8 Jan, I'll use public data instead."* A Plan B that carries on from its task shows as a dashed extension of the bar. When the date comes, you decide: switch to Plan B (the original stays, faded, as a record) or carry on.
 - **Templates:** *Dissertation* (twelve months of research phases) or *Blank*.
 - **Import** from Excel, Google Sheets, Numbers, CSV/TSV, Markdown tables, Mermaid `gantt` charts or a plain list (one item per line, written like quick add; Markdown headings become phases, `- [x]` means done). Columns are recognised by name (Task, Phase, Start, End, Duration, % Complete, Status, Predecessors…), day-first and month-first dates are told apart, and links come along.
@@ -263,6 +263,14 @@ items:
       mood: 4
       text: Took two extra meetings, but it's much sharper now.
     id: question
+  - title: Christmas vacation
+    type: task
+    phase: literature
+    start: '2026-12-21'
+    end: '2027-01-06'
+    buffer: true
+    pattern: dots
+    id: xmas
 checkin: fortnightly
 baseline:
   saved: '2026-09-01'

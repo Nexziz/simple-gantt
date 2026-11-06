@@ -938,6 +938,24 @@
 .sg-seg-wide { display: flex; }
 .sg-seg-wide button { flex: 1; }
 .sg-buffer-toggle span { display: inline-flex; align-items: center; gap: 6px; }
+.sg-pattern-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.sg-menu .sg-pattern-row { padding: 2px 8px 6px; }
+.sg-pattern {
+	display: inline-grid;
+	place-items: center;
+	width: 44px;
+	height: 28px;
+	padding: 0;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 7px;
+	background: var(--background-primary);
+	box-shadow: none;
+	cursor: pointer;
+	transition: border-color 0.12s, transform 0.12s;
+}
+.sg-pattern:hover { border-color: var(--background-modifier-border-hover); transform: translateY(-1px); }
+.sg-pattern.is-active { border-color: var(--interactive-accent); box-shadow: 0 0 0 1px var(--interactive-accent); }
+.sg-pattern svg { display: block; pointer-events: none; }
 .sg-link-btn {
 	display: inline-flex;
 	align-items: center;

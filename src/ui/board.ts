@@ -7,7 +7,7 @@ import { baselineSummary, driftOf, saveBaseline } from "../core/baseline";
 import { toCsv, toMarkdownTable } from "../core/table";
 import { Layout, Placed, computeLayout } from "../core/layout";
 import { ParseResult, parseQuickAdd } from "../core/parse";
-import { MOOD_COLORS, connectorX, makeMeasure, paintBody, paintHeader, paintLabels, renderExportSvg, svgEl, svgToImage, svgToPng, svgToString } from "../core/render";
+import { MOOD_COLORS, bufferPattern, connectorX, makeMeasure, paintBody, paintHeader, paintLabels, renderExportSvg, svgEl, svgToImage, svgToPng, svgToString } from "../core/render";
 import { renderPrintPages } from "../core/print";
 import { PAPER, PrintSettings, changedPrintSettings, pageSize, printSettingsOf } from "../core/printSettings";
 import { jpegPdf } from "../core/pdf";
@@ -15,8 +15,8 @@ import { FORMAT_LABELS, ImportPreview, applyImport, parseImport } from "../core/
 import { TEMPLATES, TemplateId } from "../core/templates";
 import { Theme, themeFromCss } from "../core/theme";
 import {
-	CHECKIN_LABELS, COLOR_ORDER, CheckIn, ColorName, GanttItem, ITEM_TYPES, ITEM_TYPE_LABELS, ItemType, MOODS, Mood, Project,
-	addPhase, cloneProject, isCheckable, isDone, isRangeType, newId,
+	BUFFER_PATTERNS, CHECKIN_LABELS, COLOR_ORDER, CheckIn, ColorName, GanttItem, ITEM_TYPES, ITEM_TYPE_LABELS, ItemType, MOODS, Mood,
+	PATTERN_LABELS, Project, addPhase, cloneProject, isCheckable, isDone, isRangeType, newId,
 } from "../core/types";
 import { confetti } from "./confetti";
 import { icon } from "./icons";
@@ -901,6 +901,11 @@ export class GanttBoard {
 				if (this.on("planb") && isCheckable(item) && !item.planB && !item.dropped)
 					this.menuItem(menu, [icon("branch", 14), span("Add a Plan B…")], () => this.select(id, true, "planb"));
 				h("div", { cls: "sg-menu-sep" }, menu);
+				if (item.type === "task" && item.buffer) {
+					h("div", { cls: "sg-menu-label", text: "Pattern" }, menu);
+					this.patternPicker(menu, item, () => this.closeMenu());
+					h("div", { cls: "sg-menu-sep" }, menu);
+				}
 				this.menuItem(menu, [icon("trash", 14), span("Delete"), kbd("Del")], () => this.deleteItem(id), "is-danger");
 			});
 			return;
@@ -2267,8 +2272,17 @@ export class GanttBoard {
 			h("span", { kids: [icon("buffer", 13), "Buffer time: slack kept free to absorb delays"] }, row);
 			cb.addEventListener("change", () => this.mutate(() => {
 				if (cb.checked) item.buffer = true;
-				else delete item.buffer;
+				else {
+					delete item.buffer;
+					delete item.pattern;
+				}
 			}, true));
+			if (item.buffer) {
+				const wrap = h("div", { cls: "sg-field" }, form);
+				h("span", { cls: "sg-label", text: "Pattern" }, wrap);
+				this.patternPicker(wrap, item);
+				h("span", { cls: "sg-hint", text: "Give vacations and buffers different patterns to tell them apart." }, wrap);
+			}
 		}
 		if (item.type !== "location" && item.type !== "event" && !item.dropped && this.on("links")) this.buildLinksSection(form, item);
 		if (isCheckable(item) && !item.dropped && !isDone(item) && this.on("planb")) this.buildPlanBSection(form, item, focus === "planb");
@@ -3073,6 +3087,35 @@ export class GanttBoard {
 	// ─── Menus ─────────────────────────────────────────────────────────────
 
 	/** A menu under a button, or at a point (client coordinates) for right-click menus. */
+	/** A row of small previews, one per buffer pattern, drawn in the buffer's own colour. */
+	private patternPicker(parent: El, item: GanttItem, after?: () => void): El {
+		const placed = this.layout?.placed.find((x) => x.kind === "item" && x.item.id === item.id);
+		const color = placed?.color ? this.theme.palette[placed.color] : this.theme.inkSecondary;
+		const row = h("div", { cls: "sg-pattern-row", attrs: { role: "radiogroup", "aria-label": "Pattern" } }, parent);
+		for (const pattern of BUFFER_PATTERNS) {
+			const active = (item.pattern ?? "diagonal") === pattern;
+			const label = PATTERN_LABELS[pattern];
+			const b = h("button", {
+				cls: `sg-pattern${active ? " is-active" : ""}`,
+				attrs: { type: "button", role: "radio", "aria-checked": String(active), "aria-label": label, title: label, "data-pattern": pattern },
+			}, row);
+			const svg = svgEl("svg", { width: 36, height: 18, viewBox: "0 0 36 18" }, b);
+			const id = `sg-pick-${pattern}-${Math.random().toString(36).slice(2, 8)}`;
+			bufferPattern(svgEl("defs", {}, svg), id, color, pattern);
+			svgEl("rect", { x: 1, y: 2, width: 34, height: 14, rx: 4, fill: this.theme.surface }, svg);
+			svgEl("rect", { x: 1, y: 2, width: 34, height: 14, rx: 4, fill: `url(#${id})`, stroke: color, "stroke-opacity": 0.7 }, svg);
+			b.addEventListener("click", () => {
+				after?.();
+				if (active) return;
+				this.mutate(() => {
+					if (pattern === "diagonal") delete item.pattern;
+					else item.pattern = pattern;
+				}, this.panelMode === "item" && this.selectedId === item.id);
+			});
+		}
+		return row;
+	}
+
 	private popMenu(anchor: El | { x: number; y: number }, build: (menu: El) => void): El {
 		this.closeMenu();
 		const menu = h("div", { cls: "sg-menu" }, this.root);

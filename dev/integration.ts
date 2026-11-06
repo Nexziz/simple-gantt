@@ -563,6 +563,39 @@ function check(cond: unknown, msg: string) {
 		([...document.querySelectorAll(".sg-print .sg-link-btn")].find((b) => b.textContent?.includes("standard layout")) as HTMLButtonElement).click();
 		key("Escape");
 		check(!document.querySelector(".sg-print-overlay") && proj().print === undefined, "back to the standard layout, and Esc closes the window");
+		// ── 0.6.14: buffers chain onto their task, and each buffer can have its own pattern ──
+		type("Poster 1 Mar – 25 Mar #poster");
+		type("~Easter vacation 19 Mar – 11 Apr #poster");
+		type("~ 12 Apr – 25 Apr #poster");
+		await sleep(50);
+		const poster = proj().items.find((i: any) => i.title === "Poster");
+		const easter = proj().items.find((i: any) => i.title === "Easter vacation");
+		const tail = proj().items.filter((i: any) => i.buffer && i.phase === poster.phase && i.id !== easter.id)[0];
+		const placedOf = (id: string) => board["layout"].placed.find((x: any) => x.kind === "item" && x.item.id === id);
+		check(easter?.buffer && placedOf(easter.id)?.attachedTo === poster.id, "a vacation inside a task joins its bar");
+		check(tail && placedOf(tail.id)?.attachedTo === poster.id && placedOf(tail.id).cy === placedOf(poster.id).cy, "a buffer right after the vacation joins the same bar");
+		const itemEl = (id: string) => document.querySelector(`.sg-item[data-id="${id}"]`)!;
+		check(itemEl(poster.id).compareDocumentPosition(itemEl(tail.id)) & Node.DOCUMENT_POSITION_FOLLOWING, "joined buffers are drawn on top of their task");
+		board["select"](easter.id, true);
+		await sleep(50);
+		const swatches = [...document.querySelectorAll(".sg-panel .sg-pattern")] as HTMLButtonElement[];
+		check(swatches.length === 6 && swatches[0].classList.contains("is-active"), "a buffer's panel offers 6 patterns, stripes chosen");
+		(swatches.find((b) => b.dataset.pattern === "dots") as HTMLButtonElement).click();
+		await sleep(50);
+		check(easter.pattern === "dots" && document.querySelector('.sg-panel .sg-pattern[data-pattern="dots"].is-active'), "picking Dots sets the buffer's pattern");
+		const fillOf = (id: string) => (document.querySelector(`.sg-item[data-id="${id}"] path.sg-mark`)?.getAttribute("fill") ?? "").replace(/^url\(#|\)$/g, "");
+		check(document.getElementById(fillOf(easter.id))?.querySelector("circle"), "the vacation is drawn with dots");
+		check(fillOf(easter.id) !== fillOf(tail.id) && document.getElementById(fillOf(tail.id))?.querySelector("line"), "…and the buffer next to it keeps its stripes");
+		await sleep(600);
+		check(/title: Easter vacation[\s\S]*?pattern: dots/.test(await read()), "the pattern is saved in the note");
+		const tm = markOf(tail.id).getBoundingClientRect();
+		markOf(tail.id).dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: tm.left + 3, clientY: tm.top + 3 }));
+		(document.querySelector('.sg-menu .sg-pattern[data-pattern="crosshatch"]') as HTMLButtonElement).click();
+		check(tail.pattern === "crosshatch" && !document.querySelector(".sg-menu"), "a buffer's right-click menu can change its pattern too");
+		markOf(poster.id).dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: tm.left, clientY: tm.top }));
+		check(!document.querySelector(".sg-menu .sg-pattern"), "ordinary tasks don't offer patterns");
+		key("Escape");
+
 		log.push(`notices: ${JSON.stringify(notices)}`);
 		(window as any).__note = await app.vault.read(file);
 	} catch (e) {

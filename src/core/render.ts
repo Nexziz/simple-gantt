@@ -2,7 +2,7 @@ import { MONTHS_LONG, MONTHS_SHORT, dayFromYmd, formatDay, monthEnd, toDay, week
 import { Lane, Layout, MILESTONE_BADGE_PAD, Measure, NOTE_GAP, Placed, computeLayout } from "./layout";
 import { PRINT_THEME, Theme, inkOnFill } from "./theme";
 import { earliestAfter } from "./links";
-import { Mood, Project, isDone, isRangeType } from "./types";
+import { BufferPattern, Mood, Project, isDone, isRangeType } from "./types";
 
 /** Mood scale for journal dots: diverging red → neutral grey → blue. */
 export const MOOD_COLORS: Record<Mood, string> = { 1: "#e34948", 2: "#ec9a8c", 3: "#a9a79f", 4: "#6da7ec", 5: "#2a78d6" };
@@ -360,21 +360,27 @@ export function paintBody(layout: Layout, o: PaintOptions): SVGSVGElement {
 	const bufferIds = new Map<string, string>();
 	const fills: Fills = {
 		hatch: `url(#${hatchId})`,
-		buffer: (color) => {
-			let id = bufferIds.get(color);
+		buffer: (color, pattern = "diagonal") => {
+			const key = `${color}|${pattern}`;
+			let id = bufferIds.get(key);
 			if (!id) {
 				id = `sg-buffer-${++defsCounter}`;
-				const pt = svgEl("pattern", { id, width: 7, height: 7, patternUnits: "userSpaceOnUse", patternTransform: "rotate(45)" }, defs);
-				svgEl("rect", { width: 7, height: 7, fill: color, "fill-opacity": 0.12 }, pt);
-				svgEl("line", { x1: 0, y1: 0, x2: 0, y2: 7, stroke: color, "stroke-width": 2.4, "stroke-opacity": 0.5 }, pt);
-				bufferIds.set(color, id);
+				bufferPattern(defs, id, color, pattern);
+				bufferIds.set(key, id);
 			}
 			return `url(#${id})`;
 		},
 	};
-	// A Plan B that continues a task goes underneath it, so only the part past the task's end shows.
+	// A Plan B that continues a task goes underneath it, so only the part past the task's end shows;
+	// buffers joined to a task go on top of it, earliest first, so each reads as a stretch of the bar.
 	const under = (p: Placed) => p.kind === "ghost" && !!p.attachedTo;
-	for (const p of [...layout.placed.filter(under), ...layout.placed.filter((p) => !under(p))]) paintItem(items, p, layout, o, fills);
+	const over = (p: Placed) => p.kind === "item" && !!p.attachedTo;
+	const order = [
+		...layout.placed.filter(under),
+		...layout.placed.filter((p) => !under(p) && !over(p)),
+		...layout.placed.filter(over).sort((a, b) => a.x0 - b.x0),
+	];
+	for (const p of order) paintItem(items, p, layout, o, fills);
 	// The selected link's detach button sits on top of everything.
 	if (detach) {
 		const [x, y] = detach;
@@ -389,8 +395,39 @@ export function paintBody(layout: Layout, o: PaintOptions): SVGSVGElement {
 interface Fills {
 	/** Neutral hatch for locations. */
 	hatch: string;
-	/** Hatch in a phase colour, for buffer time. */
-	buffer: (color: string) => string;
+	/** A pattern in a phase colour, for buffer time. */
+	buffer: (color: string, pattern?: BufferPattern) => string;
+}
+
+/** The tile behind each buffer pattern: a light tint of the colour with marks in it. */
+export function bufferPattern(defs: SVGElement, id: string, color: string, pattern: BufferPattern) {
+	const size = pattern === "dots" ? 6 : pattern === "horizontal" ? 5 : pattern === "grid" ? 6 : 7;
+	const rotate = pattern === "diagonal" || pattern === "crosshatch" ? "rotate(45)" : pattern === "reverse" ? "rotate(-45)" : undefined;
+	const pt = svgEl("pattern", { id, width: size, height: size, patternUnits: "userSpaceOnUse", ...(rotate ? { patternTransform: rotate } : {}) }, defs);
+	svgEl("rect", { width: size, height: size, fill: color, "fill-opacity": 0.12 }, pt);
+	const line = (x1: number, y1: number, x2: number, y2: number, w: number, op = 0.5) =>
+		svgEl("line", { x1, y1, x2, y2, stroke: color, "stroke-width": w, "stroke-opacity": op }, pt);
+	switch (pattern) {
+		case "diagonal":
+		case "reverse":
+			line(0, 0, 0, size, 2.4);
+			break;
+		case "crosshatch":
+			line(0, 0, 0, size, 1.3, 0.55);
+			line(0, 0, size, 0, 1.3, 0.55);
+			break;
+		case "dots":
+			svgEl("circle", { cx: 1.5, cy: 1.5, r: 1.3, fill: color, "fill-opacity": 0.7 }, pt);
+			svgEl("circle", { cx: 4.5, cy: 4.5, r: 1.3, fill: color, "fill-opacity": 0.7 }, pt);
+			break;
+		case "horizontal":
+			line(0, 2.5, size, 2.5, 1.6, 0.55);
+			break;
+		case "grid":
+			line(0.5, 0, 0.5, size, 1, 0.5);
+			line(0, 0.5, size, 0.5, 1, 0.5);
+			break;
+	}
 }
 
 /**
@@ -453,7 +490,7 @@ function paintItem(parent: Element, p: Placed, layout: Layout, o: PaintOptions, 
 		const d = barPath(p.x0 + (p.squareLeft ? 0 : 0.5), top + 0.5, Math.max(2, w - (p.squareLeft ? 0 : 0.5) - (p.squareRight ? 0 : 0.5)), h - 1, 6, !p.squareLeft, !p.squareRight);
 		// An opaque base, so a buffer inside its task's bar reads as a hatched stretch of it.
 		if (p.attachedTo) svgEl("path", { d, fill: theme.surface, "pointer-events": "none" }, g);
-		svgEl("path", { d, fill: fills.buffer(color), stroke: color, "stroke-opacity": 0.7, class: "sg-mark", "data-part": "body" }, g);
+		svgEl("path", { d, fill: fills.buffer(color, it.pattern), stroke: color, "stroke-opacity": 0.7, class: "sg-mark", "data-part": "body" }, g);
 		if (p.attachedTo) {
 			// Its name sits just above it, like a caption.
 			text(g, p.labelX, top - layout.g.fontSize / 2 - 1.5, p.label, {

@@ -398,8 +398,9 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 			return { mark, item, s, e, label, note, labelW, x0, x1, labelX, labelInside, labelAnchor, from, to };
 		});
 		// Buffer time sits on the row of the task it belongs to (one it overlaps, or follows within a week),
-		// joined to the bar like an extension of it, with its name above. A Plan B that runs past the end of
-		// its task is drawn the same way: a dashed extension of the bar.
+		// joined to the bar like an extension of it, with its name above. Buffers chain: one that overlaps or
+		// follows a buffer already joined to a task joins that task too (task → vacation → buffer is one bar).
+		// A Plan B that runs past the end of its task is drawn the same way: a dashed extension of the bar.
 		const hostOf = new Map<number, number>();
 		const isTask = (q: (typeof pre)[number]) => q.mark.kind === "item" && q.item.type === "task" && !q.item.dropped;
 		if (!strip && !flat) {
@@ -409,43 +410,66 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 				// Only when it carries on from the task (overlaps it or starts within a week of its end).
 				if (j >= 0 && b.e > pre[j].e && b.s - pre[j].e <= 7) hostOf.set(i, j);
 			});
-			pre.forEach((b, i) => {
-				if (!isTask(b) || !b.item.buffer) return;
+			// Earliest first, so each buffer sees the chain the ones before it built.
+			const buffers = pre.map((_, i) => i).filter((i) => isTask(pre[i]) && pre[i].item.buffer).sort((a, b) => pre[a].s - pre[b].s || a - b);
+			const chainEnd = new Map<number, number>();
+			const chainIds = new Map<number, Set<string>>();
+			for (const i of buffers) {
+				const b = pre[i];
 				let best = -1, bestScore = Infinity;
 				pre.forEach((t, j) => {
 					if (!isTask(t) || t.item.buffer) return;
-					const overlaps = b.s <= t.e && b.e >= t.s;
-					const follows = b.s > t.e && b.s - t.e <= 7;
+					const end = chainEnd.get(j) ?? t.e;
+					const overlaps = b.s <= end && b.e >= t.s;
+					const follows = b.s > end && b.s - end <= 7;
 					if (!overlaps && !follows) return;
-					const score = (b.item.after?.includes(t.item.id) ? 0 : 1000) + (overlaps ? 0 : b.s - t.e);
+					const linked = b.item.after?.some((id) => id === t.item.id || chainIds.get(j)?.has(id));
+					const score = (linked ? 0 : 1000) + (overlaps ? 0 : b.s - end);
 					if (score < bestScore) [best, bestScore] = [j, score];
 				});
-				if (best >= 0) hostOf.set(i, best);
-			});
+				if (best < 0) continue;
+				hostOf.set(i, best);
+				chainEnd.set(best, Math.max(chainEnd.get(best) ?? pre[best].e, b.e));
+				if (!chainIds.has(best)) chainIds.set(best, new Set());
+				chainIds.get(best)!.add(b.item.id);
+			}
 			const labelSize = g.fontSize - 1.5;
-			for (const [i, j] of hostOf) {
-				const b = pre[i], t = pre[j];
+			// Captions already placed above each host's row, so overlapping buffers don't write over each other.
+			const captions = new Map<number, [number, number][]>();
+			const attached = [...hostOf].sort(([a], [b]) => pre[a].x0 - pre[b].x0 || a - b);
+			for (const [i, j] of attached) {
+				const b = pre[i];
 				// On paper a buffer's caption says when it is; captions can be switched off.
 				if (opts.captions === false) b.label = "";
 				else if (print && b.label && b.mark.kind === "item") b.label = `${b.label} · ${shortRange(b.s, b.e)}`;
 				b.labelW = b.label ? opts.measure(b.label, 500, labelSize) : 0;
 				b.labelInside = false;
 				// Over the part that shows: a Plan B under its task only shows past the task's end.
-				const shown = b.mark.kind === "ghost" ? Math.max(b.x0, t.x1) : b.x0;
-				b.labelAnchor = shown + b.labelW + 2 > width ? "end" : "start";
-				b.labelX = b.labelAnchor === "end" ? b.x1 : shown + 1;
-				b.from = Math.min(t.from, b.x0);
-				b.to = b.x1;
-				// The task's own label moves past the buffer (or out of the bar, if the buffer covers it).
-				const end = Math.max(t.x1, b.x1);
-				const covered = t.labelInside && t.labelX + t.labelW > b.x0 && t.labelX < b.x1;
+				const shown = b.mark.kind === "ghost" ? Math.max(b.x0, pre[j].x1) : b.x0;
+				const taken = captions.get(j) ?? [];
+				let x = shown + 1;
+				if (b.labelW) for (const [c0, c1] of [...taken].sort((p, q) => p[0] - q[0])) if (x < c1 + 8 && x + b.labelW > c0 - 8) x = c1 + 8;
+				b.labelAnchor = x + b.labelW + 2 > width ? "end" : "start";
+				b.labelX = b.labelAnchor === "end" ? (x === shown + 1 ? b.x1 : width - 2) : x;
+				const [c0, c1] = b.labelAnchor === "end" ? [b.labelX - b.labelW, b.labelX] : [b.labelX, b.labelX + b.labelW];
+				if (b.labelW) captions.set(j, [...taken, [c0, c1]]);
+				b.from = Math.min(pre[j].from, b.x0);
+				b.to = Math.max(b.x1, b.labelW ? c1 : b.x1);
+			}
+			// Each task's own label moves past its whole chain (or out of the bar, if a buffer covers it).
+			for (const j of new Set(hostOf.values())) {
+				const t = pre[j];
+				const members = [...hostOf].filter(([, h]) => h === j).map(([i]) => pre[i]);
+				const end = Math.max(t.x1, ...members.map((b) => b.x1));
+				const covered = t.labelInside && members.some((b) => t.labelX + t.labelW > b.x0 && t.labelX < b.x1);
 				if (!t.labelInside || covered) {
 					t.labelInside = false;
 					t.labelAnchor = end + g.labelGap + t.labelW + 4 > width ? "end" : "start";
 					t.labelX = t.labelAnchor === "end" ? t.x0 - g.labelGap : end + g.labelGap;
 				}
-				t.from = Math.min(t.from, b.x0, t.labelAnchor === "end" && !t.labelInside ? t.labelX - t.labelW : t.from);
-				t.to = Math.max(t.to, b.x1, t.labelAnchor === "start" && !t.labelInside ? t.labelX + t.labelW : t.to);
+				const outside = !t.labelInside;
+				t.from = Math.min(t.from, ...members.map((b) => b.from), outside && t.labelAnchor === "end" ? t.labelX - t.labelW : t.from);
+				t.to = Math.max(t.to, ...members.map((b) => b.to), outside && t.labelAnchor === "start" ? t.labelX + t.labelW : t.to);
 			}
 		}
 
@@ -488,16 +512,23 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 		};
 		lanes.push(lane);
 
-		/** How a buffer and its task join: square ends where they touch. */
+		/** How a buffer and its task join: square ends where something touches them. */
 		const joins = (i: number): Partial<Placed> => {
 			const j = hostOf.get(i);
-			if (j !== undefined) {
-				const b = pre[i], t = pre[j];
+			const b = pre[i];
+			if (j !== undefined && b.mark.kind === "ghost") {
+				const t = pre[j];
 				return { attachedTo: t.item.id, squareLeft: b.s <= t.e + 1, squareRight: b.e < t.e };
 			}
-			// The task's end is square where something continues it.
-			const continued = [...hostOf].some(([bi, tj]) => tj === i && pre[bi].s <= pre[i].e + 1 && pre[bi].e > pre[i].e);
-			return continued ? { squareRight: true } : {};
+			const host = j ?? i;
+			if (j === undefined && ![...hostOf.values()].includes(i)) return {};
+			// The bars it shares a row with: the task and its buffers (a Plan B is drawn underneath, so it doesn't count).
+			// The task's end is also square where its Plan B carries on from it.
+			const chain = [host, ...[...hostOf].filter(([k, h]) => h === host && (j === undefined || pre[k].mark.kind !== "ghost")).map(([k]) => k)].filter((k) => k !== i);
+			const squareLeft = chain.some((k) => pre[k].mark.kind !== "ghost" && pre[k].s < b.s && pre[k].e >= b.s - 1);
+			const squareRight = chain.some((k) => pre[k].e > b.e && pre[k].s <= b.e + 1);
+			if (j !== undefined) return { attachedTo: pre[j].item.id, squareLeft, squareRight };
+			return { ...(squareLeft ? { squareLeft } : {}), ...(squareRight ? { squareRight } : {}) };
 		};
 
 		pre.forEach((p, i) => {
