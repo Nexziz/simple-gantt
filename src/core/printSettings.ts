@@ -8,6 +8,8 @@ export interface PrintSettings {
 	/** Room between the rows: more makes arrows and steps easier to follow. */
 	spacing: "tight" | "normal" | "roomy";
 	textSize: "small" | "normal" | "large";
+	/** How lengths and countdowns are counted: all in weeks, all in days, or weeks then months. */
+	timeUnit: "weeks" | "days" | "auto";
 	/** Where buffer, vacation and Plan B names go: above the bar, under it, or above unless crowded (auto). */
 	captionPlace: "auto" | "above" | "below";
 	/** A table of the milestones under the chart, earliest first. */
@@ -42,6 +44,7 @@ export const DEFAULT_PRINT: PrintSettings = {
 	spacing: "normal",
 	textSize: "normal",
 	captionPlace: "auto",
+	timeUnit: "weeks",
 	milestoneTable: true,
 	tableDeadlines: false,
 	taskDates: true,
@@ -62,6 +65,7 @@ const CHOICES: { [K in keyof PrintSettings]?: readonly string[] } = {
 	spacing: ["tight", "normal", "roomy"],
 	textSize: ["small", "normal", "large"],
 	captionPlace: ["auto", "above", "below"],
+	timeUnit: ["weeks", "days", "auto"],
 };
 
 /** Read print settings from a note, keeping only valid values. */

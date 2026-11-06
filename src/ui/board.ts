@@ -3261,7 +3261,7 @@ export class GanttBoard {
 
 		const syncs: (() => void)[] = [];
 		const sync = () => syncs.forEach((f) => f());
-		const choice = <K extends "paper" | "orientation" | "spacing" | "textSize" | "captionPlace">(label: string, key: K, options: [PrintSettings[K], string][]) => {
+		const choice = <K extends "paper" | "orientation" | "spacing" | "textSize" | "captionPlace" | "timeUnit">(label: string, key: K, options: [PrintSettings[K], string][]) => {
 			const field = h("div", { cls: "sg-field" }, controls);
 			h("span", { cls: "sg-label", text: label }, field);
 			const seg = h("div", { cls: "sg-seg sg-seg-wide", attrs: { role: "group", "aria-label": label } }, field);
@@ -3276,6 +3276,7 @@ export class GanttBoard {
 		choice("Space between rows", "spacing", [["tight", "Tight"], ["normal", "Normal"], ["roomy", "Roomy"]]);
 		choice("Text size", "textSize", [["small", "Small"], ["normal", "Normal"], ["large", "Large"]]);
 		choice("Buffer and vacation names", "captionPlace", [["auto", "Auto"], ["above", "Above"], ["below", "Below"]]);
+		choice("Count time in", "timeUnit", [["weeks", "Weeks"], ["days", "Days"], ["auto", "Mixed"]]);
 
 		h("div", { cls: "sg-section-title", text: "Show" }, controls);
 		const list = h("div", { cls: "sg-features" }, controls);

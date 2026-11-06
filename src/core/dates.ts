@@ -93,6 +93,26 @@ export function formatDuration(days: number): string {
 	return `${m} months`;
 }
 
+/** How time is counted on paper: weeks throughout, days throughout, or weeks then months (auto). */
+export type TimeUnit = "weeks" | "days" | "auto";
+
+const plural = (n: number, unit: string) => `${n} ${unit}${n === 1 ? "" : "s"}`;
+
+/** How long something lasts, exactly: "2 weeks 3 days" (weeks), "17 days" (days), or rounded (auto). */
+export function formatLength(days: number, unit: TimeUnit): string {
+	if (unit === "auto") return formatDuration(days);
+	if (unit === "days" || days < 7) return plural(days, "day");
+	const w = Math.floor(days / 7), d = days % 7;
+	return d ? `${plural(w, "week")} ${plural(d, "day")}` : plural(w, "week");
+}
+
+/** How far off something is, without the "in"/"ago": "20 weeks" (to the nearest week), "139 days", or rounded (auto). */
+export function formatDistance(days: number, unit: TimeUnit): string {
+	if (unit === "auto") return formatDuration(days);
+	if (unit === "days" || days < 7) return plural(days, "day");
+	return plural(Math.round(days / 7), "week");
+}
+
 /** Short month span label, e.g. "Sep – Feb". */
 export function formatMonthSpan(startDay: number, endDay: number): string {
 	const [sy, sm] = ymd(startDay);

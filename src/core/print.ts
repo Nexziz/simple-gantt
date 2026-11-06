@@ -1,4 +1,4 @@
-import { formatDay, formatDuration, toDay } from "./dates";
+import { formatDay, formatDistance, formatLength, toDay } from "./dates";
 import { COMPACT, Geometry, Lane, Layout, Measure, PRINT_GEOMETRY, computeLayout, shortRange } from "./layout";
 import { nextDeadline } from "./nudges";
 import { PrintSettings, pageSize, printSettingsOf } from "./printSettings";
@@ -122,7 +122,7 @@ export function renderPrintPages(project: Project, opts: PrintOptions = {}): SVG
 			const rest = [compare ? `dashed outlines: the plan saved ${formatDay(toDay(project.baseline!.saved))}` : "", `updated ${printed}`].filter(Boolean).join("  ·  ");
 			const line = text(svg, W - M, M + 33, next ? "" : rest[0].toUpperCase() + rest.slice(1), { fill: theme.inkMuted, "font-size": 10.5, "text-anchor": "end" });
 			if (next) {
-				svgEl("tspan", { fill: theme.deadline, "font-weight": 600 }, line).textContent = `${next.item.title} ${next.days === 0 ? "today" : `in ${formatDuration(next.days)}`}`;
+				svgEl("tspan", { fill: theme.deadline, "font-weight": 600 }, line).textContent = `${next.item.title} ${next.days === 0 ? "today" : `in ${formatDistance(next.days, set.timeUnit)}`}`;
 				svgEl("tspan", {}, line).textContent = `  ·  ${rest}`;
 			}
 		} else {
@@ -223,7 +223,7 @@ function bufferTable(rows: BreakRow[], set: PrintSettings, theme: Theme, measure
 		svgEl("rect", { x: x + 0.5, y: y - 5.5, width: swatchW, height: 11, rx: 3, fill: `url(#${id})`, stroke: r.color, "stroke-opacity": 0.8 }, g);
 		const dx = x + swatchW + 10;
 		text(g, dx, y, shortRange(r.s, r.e), { fill: theme.ink, "font-size": fs, "font-weight": 600 });
-		const length = formatDuration(r.e - r.s + 1);
+		const length = formatLength(r.e - r.s + 1, set.timeUnit);
 		const lengthW = measure(length, 400, fs - 0.5);
 		const nameX = dx + dateW;
 		text(g, nameX, y, fit(r.title, colW - (nameX - x) - lengthW - 22, measure, 500, fs), { fill: theme.ink, "font-size": fs, "font-weight": 500 });
@@ -272,7 +272,7 @@ function milestoneTable(project: Project, set: PrintSettings, theme: Theme, meas
 		if (isDone(it)) [status, statusColor] = ["✓ done", "#1baf7a"];
 		else if (today != null) {
 			const d = day - today;
-			status = d === 0 ? "today" : d > 0 ? `in ${formatDuration(d)}` : `${formatDuration(-d)} ago`;
+			status = d === 0 ? "today" : d > 0 ? `in ${formatDistance(d, set.timeUnit)}` : `${formatDistance(-d, set.timeUnit)} ago`;
 			if (d < 0) statusColor = theme.deadline;
 		}
 		const statusW = status ? measure(status, 400, fs - 0.5) : 0;

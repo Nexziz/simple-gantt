@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { toDay } from "../src/core/dates";
+import { formatDistance, formatLength, toDay } from "../src/core/dates";
 import { checkInSlots, dueCheckIn, slotStates } from "../src/core/journal";
 import { computeNudges, nextDeadline, overallProgress, rippleShift } from "../src/core/nudges";
 import { normalizeProject, toPlain } from "../src/core/serialize";
@@ -482,6 +482,20 @@ t("a Plan B that carries on from its task is drawn on the task's row; a later on
 	assert.equal(at("e1~planb").cy, at("e1").cy);
 	assert.ok(at("e1").squareRight, "the task's end joins the dashed extension");
 	assert.equal(at("x1~planb").attachedTo, undefined, "a Plan B weeks later stays separate");
+});
+
+t("time on paper is counted one way throughout: weeks by default, or days, or weeks then months", () => {
+	assert.equal(formatLength(21, "weeks"), "3 weeks");
+	assert.equal(formatLength(17, "weeks"), "2 weeks 3 days", "a length is exact");
+	assert.equal(formatLength(8, "weeks"), "1 week 1 day");
+	assert.equal(formatLength(5, "weeks"), "5 days");
+	assert.equal(formatLength(17, "days"), "17 days");
+	assert.equal(formatDistance(139, "weeks"), "20 weeks", "a countdown is to the nearest week");
+	assert.equal(formatDistance(71, "weeks"), "10 weeks");
+	assert.equal(formatDistance(139, "days"), "139 days");
+	assert.equal(formatDistance(139, "auto"), "4.5 months");
+	assert.equal(formatDistance(1, "weeks"), "1 day");
+	assert.equal(DEFAULT_PRINT.timeUnit, "weeks");
 });
 
 t("print settings: saved in the note, only what differs from the defaults", () => {

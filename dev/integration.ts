@@ -557,6 +557,7 @@ function check(cond: unknown, msg: string) {
 		// 0.6.16: every arrow on paper, buffer names with their dates, a table of the vacations and buffers.
 		check(["bufferTable", "longArrows", "captionDates"].every((k) => document.querySelector(`[data-print="${k}"]`)), "the print window has switches for the breaks table, long arrows and buffer dates");
 		check([...document.querySelectorAll(".sg-print .sg-seg button")].some((b) => b.textContent === "Below"), "…and a choice of where buffer names go");
+		check([...document.querySelectorAll(".sg-print .sg-seg button")].some((b) => b.textContent === "Weeks" && b.classList.contains("is-active")), "…and of counting time in weeks (the default)");
 		await sleep(600);
 		const savePdf = [...document.querySelectorAll(".sg-print-buttons .sg-btn")].find((b) => b.textContent?.includes("Save PDF")) as HTMLButtonElement;
 		savePdf.click();
@@ -607,6 +608,24 @@ function check(cond: unknown, msg: string) {
 		check(pageText.includes("VACATIONS AND BUFFERS") && pageText.some((t) => /^Easter vacation · \d/.test(t)), "the printed page lists vacations and buffers, and their names keep their dates");
 		const arrowsOn = (opts: Partial<import("../src/core/printSettings").PrintSettings>) =>
 			renderPrintPages(proj(), { settings: { ...printSettingsOf(proj().print), ...opts } })[0].querySelectorAll(".sg-link").length;
+		// 0.6.17: time on paper counted one way throughout (weeks by default).
+		const timeProject = normalizeProject({
+			title: "Weeks", start: "2026-11-02", end: "2027-04-26",
+			phases: [{ id: "v", name: "VEX" }],
+			items: [
+				{ id: "t", type: "task", title: "VEX", phase: "v", start: "2027-02-08", end: "2027-03-25" },
+				{ id: "m", type: "milestone", title: "VEX done", phase: "v", start: "2027-03-25" },
+				{ id: "b", type: "task", buffer: true, title: "Easter vacation", phase: "v", start: "2027-03-26", end: "2027-04-11" },
+				{ id: "d", type: "deadline", title: "Submission", start: "2027-04-19" },
+			],
+		});
+		const printedWords = (timeUnit: "weeks" | "days" | "auto") =>
+			renderPrintPages(timeProject, { today: Date.UTC(2026, 10, 6) / 864e5, settings: { ...printSettingsOf(undefined), timeUnit } })
+				.flatMap((svg) => [...svg.querySelectorAll("text")].map((t) => t.textContent ?? "")).join(" | ");
+		const inWeeks = printedWords("weeks");
+		check(inWeeks.includes("in 20 weeks") && inWeeks.includes("2 weeks 3 days") && inWeeks.includes("Submission in 23 weeks") && !/months/.test(inWeeks),
+			"on paper, time is counted in weeks throughout by default (milestones, breaks, countdown)");
+		check(printedWords("auto").includes("in 4.5 months") && printedWords("days").includes("in 139 days") && printedWords("days").includes("17 days"), "…or in days, or weeks and months");
 		check(arrowsOn({ longArrows: true }) > arrowsOn({ longArrows: false }), `long arrows across phases print like on the board (${arrowsOn({ longArrows: true })} vs ${arrowsOn({ longArrows: false })})`);
 
 		log.push(`notices: ${JSON.stringify(notices)}`);
