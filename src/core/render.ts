@@ -87,6 +87,8 @@ export interface PaintOptions {
 	hideLinks?: boolean;
 	/** Paper: only the arrows between neighbouring phases, not the long ones through other phases. */
 	shortLinksOnly?: boolean;
+	/** Paper: a line under a phase's name (its duration), by lane key. */
+	laneNotes?: Map<string, string>;
 	flashId?: string | null;
 	interactive?: boolean;
 	/** Visible horizontal window [from, to] in timeline px; header labels stay inside it while scrolling. */
@@ -129,7 +131,7 @@ export function paintHeader(layout: Layout, o: PaintOptions): SVGSVGElement {
 	const [y1] = ymd(layout.viewEnd);
 	// Where the Today pill sits, so a year label can step aside for it.
 	const todayX = o.today != null && o.today >= layout.viewStart && o.today <= layout.viewEnd ? layout.xOf(o.today) + layout.pxPerDay / 2 : null;
-	const pillW = o.measure("Today", 600, 10) + 12;
+	const pillW = o.measure(o.print && o.today != null ? `Printed ${formatDay(o.today, false)}` : "Today", 600, 10) + 12;
 	for (let year = y0; year <= y1; year++) {
 		const from = Math.max(layout.viewStart, dayFromYmd(year, 0, 1));
 		const to = Math.min(layout.viewEnd + 1, dayFromYmd(year + 1, 0, 1));
@@ -138,8 +140,10 @@ export function paintHeader(layout: Layout, o: PaintOptions): SVGSVGElement {
 		if (year !== y0) svgEl("line", { x1: x + 0.5, x2: x + 0.5, y1: 0, y2: layout.headerH, stroke: theme.axis }, svg);
 		const tw = o.measure(String(year), 700, 11) + 4;
 		let lx = Math.max(x + 8, Math.min(Math.max(x, v0) + 8, xEnd - tw - 8));
-		if (todayX !== null && lx < todayX + pillW / 2 + 4 && lx + tw > todayX - pillW / 2 - 4) {
-			const after = todayX + pillW / 2 + 6;
+		// The pill is kept inside the chart, so near an edge it isn't centred on its line: use where it really is.
+		const pillX = todayX === null ? 0 : Math.min(Math.max(todayX - pillW / 2, 2), layout.width - pillW - 2);
+		if (todayX !== null && lx < pillX + pillW + 4 && lx + tw > pillX - 4) {
+			const after = pillX + pillW + 6;
 			if (after + tw < xEnd - 4) lx = after;
 		}
 		text(svg, lx, layout.g.yearRowH / 2 + 1, String(year), {
@@ -208,7 +212,8 @@ export function paintHeader(layout: Layout, o: PaintOptions): SVGSVGElement {
 
 	if (o.today != null && o.today >= layout.viewStart && o.today <= layout.viewEnd) {
 		const x = layout.xOf(o.today) + layout.pxPerDay / 2;
-		const label = "Today";
+		// On paper "Today" would be wrong by the time anyone reads it: it says which day instead.
+		const label = o.print ? `Printed ${formatDay(o.today, false)}` : "Today";
 		const w = o.measure(label, 600, 10) + 12;
 		const px = Math.min(Math.max(x - w / 2, 2), layout.width - w - 2);
 		svgEl("line", { x1: x, x2: x, y1: 18, y2: layout.headerH, stroke: theme.accent, "stroke-width": 1.5 }, svg);
@@ -261,9 +266,13 @@ export function paintLabels(layout: Layout, labelWidth: number, o: PaintOptions)
 		const tx = 34 + indent;
 		const max = labelWidth - tx - (o.interactive ? 40 : 12);
 		if (o.print) {
-			// Paper: just the name (the chart shows the rest), on two lines when it's long.
+			// Paper: the name (on two lines when it's long) and, if chosen, how long the phase's work takes.
 			const lines = wrapTwo(lane.title, max, measure, 600, 13);
-			lines.forEach((line, k) => text(g, tx, mid + (k - (lines.length - 1) / 2) * 16, line, { fill: theme.ink, "font-size": 13, "font-weight": 600 }));
+			const note = o.laneNotes?.get(lane.key);
+			const rows = lines.length + (note ? 1 : 0);
+			const rowY = (k: number) => mid + (k - (rows - 1) / 2) * 16;
+			lines.forEach((line, k) => text(g, tx, rowY(k), line, { fill: theme.ink, "font-size": 13, "font-weight": 600 }));
+			if (note) text(g, tx, rowY(lines.length) + 1, truncate(note, max, measure, 400, 11), { fill: theme.inkSecondary, "font-size": 11 });
 		} else {
 			text(g, tx, mid - 7, truncate(lane.title, max, measure, 600, 13), {
 				fill: theme.ink, "font-size": 13, "font-weight": 600, "pointer-events": "none",

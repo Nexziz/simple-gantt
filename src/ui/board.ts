@@ -3293,8 +3293,10 @@ export class GanttBoard {
 				}
 			});
 		};
-		toggle("milestoneTable", "Milestone table", "Every milestone under the chart, earliest first, with how far off it is");
+		toggle("phaseDurations", "Phase lengths", "Under each phase's name: how long its work takes, without vacations and buffers");
+		toggle("milestoneTable", "Milestone table", "Every milestone under the chart with its date, earliest first");
 		toggle("tableDeadlines", "Deadlines in the table", "List the deadlines there too", "milestoneTable");
+		toggle("milestoneCountdown", "How far off each one is", "Counted from the day you print, so it goes out of date", "milestoneTable");
 		toggle("bufferTable", "Vacations and buffers table", "Each one under the chart with its dates, length and pattern");
 		toggle("taskDates", "Task dates", "Each task's dates after its name");
 		toggle("today", "Today line", "Where the plan stands on the day you print");
@@ -3304,7 +3306,7 @@ export class GanttBoard {
 		toggle("captionDates", "With their dates", "When each vacation and buffer runs, e.g. 26 Mar – 11 Apr", "captions");
 		toggle("weeks", "Week dates", "The row of dates under the months");
 		toggle("subtitle", "Subtitle and author", "Under the title");
-		toggle("countdown", "Countdown", "Time left to the next deadline, by the title");
+		toggle("countdown", "Countdown", "Time left to the next deadline, by the title (goes out of date)");
 		if (project.baseline) {
 			const row = h("label", { cls: "sg-feature" }, list);
 			h("span", { cls: "sg-feature-text", kids: [h("strong", { text: "Saved plan" }), h("small", { text: "Dashed outlines where things were planned" })] }, row);

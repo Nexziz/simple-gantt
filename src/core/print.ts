@@ -5,6 +5,7 @@ import { PrintSettings, pageSize, printSettingsOf } from "./printSettings";
 import { NS, PaintOptions, bufferPattern, formatPeriod, makeMeasure, nest, paintBody, paintHeader, paintLabels, svgEl, text } from "./render";
 import { PRINT_THEME, Theme } from "./theme";
 import { BufferPattern, Project, isDone } from "./types";
+import { phaseWorkDays } from "./durations";
 
 /** A4 landscape in CSS pixels at 96 dpi (297 × 210 mm), so text prints at its real size. */
 export const A4_LANDSCAPE = { width: 1123, height: 794, widthPt: 841.89, heightPt: 595.28 };
@@ -74,9 +75,16 @@ export function renderPrintPages(project: Project, opts: PrintOptions = {}): SVG
 		const roomier = sized({ ...g, lanePad: g.lanePad * f, minLaneH: g.minLaneH * Math.min(f, 1.4) });
 		if (roomier.bodyH <= room(title1, layout.headerH)) layout = roomier;
 	}
+	// Under each phase's name: how long its work takes, which stays true whenever the page is read.
+	const laneNotes = new Map<string, string>();
+	if (set.phaseDurations)
+		for (const ph of project.phases) {
+			const days = phaseWorkDays(project, ph.id);
+			if (days) laneNotes.set(ph.id, `${formatLength(days, set.timeUnit)} of work`);
+		}
 	const paint: PaintOptions = {
 		theme, measure, interactive: false, print: true, today, hideLinks: !set.arrows, shortLinksOnly: !set.longArrows,
-		plan: compare ? project.baseline : null,
+		plan: compare ? project.baseline : null, laneNotes,
 	};
 	// A little too tall still fits on one sheet, slightly smaller; only much longer plans continue on a second page.
 	const SHRINK = 0.85;
@@ -255,7 +263,7 @@ function milestoneTable(project: Project, set: PrintSettings, theme: Theme, meas
 	const heading = set.tableDeadlines ? "MILESTONES AND DEADLINES" : "MILESTONES";
 	text(g, 0, 8, heading, { fill: theme.inkMuted, "font-size": 9.5, "font-weight": 700, "letter-spacing": "0.08em" });
 	// Says what the number on the right is: how far off it is from the day this was printed (not how long anything takes).
-	if (today != null) for (let c = 0; c < cols; c++) text(g, c * colW + colW - 16, 8, `FROM ${formatDay(today, false).toUpperCase()}`, columnHead(theme));
+	if (today != null && set.milestoneCountdown) for (let c = 0; c < cols; c++) text(g, c * colW + colW - 16, 8, `FROM ${formatDay(today, false).toUpperCase()}`, columnHead(theme));
 	svgEl("line", { x1: 0, x2: width, y1: 17.5, y2: 17.5, stroke: theme.axis }, g);
 	const dateW = measure("30 Sep", 600, fs) + 10;
 	items.forEach((it, k) => {
@@ -271,10 +279,10 @@ function milestoneTable(project: Project, set: PrintSettings, theme: Theme, meas
 			svgEl("path", { d: `M${x + 6},${y - r} L${x + 6 + r},${y} L${x + 6},${y + r} L${x + 6 - r},${y} Z`, fill: color, stroke: theme.ink, "stroke-width": 1, "stroke-linejoin": "round" }, g);
 		}
 		text(g, x + 18, y, formatDay(day, false), { fill: theme.ink, "font-size": fs, "font-weight": 600 });
-		// How far off it is (or that it's done).
+		// How far off it is, only when chosen (it goes out of date); that it's done is always worth saying.
 		let status = "", statusColor = theme.inkMuted;
 		if (isDone(it)) [status, statusColor] = ["✓ done", "#1baf7a"];
-		else if (today != null) {
+		else if (today != null && set.milestoneCountdown) {
 			const d = day - today;
 			status = d === 0 ? "today" : d > 0 ? `in ${formatDistance(d, set.timeUnit)}` : `${formatDistance(-d, set.timeUnit)} ago`;
 			if (d < 0) statusColor = theme.deadline;

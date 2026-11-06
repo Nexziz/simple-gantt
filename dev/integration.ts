@@ -619,10 +619,15 @@ function check(cond: unknown, msg: string) {
 				{ id: "d", type: "deadline", title: "Submission", start: "2027-04-19" },
 			],
 		});
-		const printedWords = (timeUnit: "weeks" | "days" | "auto") =>
-			renderPrintPages(timeProject, { today: Date.UTC(2026, 10, 6) / 864e5, settings: { ...printSettingsOf(undefined), timeUnit } })
+		const printedWords = (timeUnit: "weeks" | "days" | "auto", countdowns = true) =>
+			renderPrintPages(timeProject, { today: Date.UTC(2026, 10, 6) / 864e5, settings: { ...printSettingsOf(undefined), timeUnit, milestoneCountdown: countdowns, countdown: countdowns } })
 				.flatMap((svg) => [...svg.querySelectorAll("text")].map((t) => t.textContent ?? "")).join(" | ");
 		const inWeeks = printedWords("weeks");
+		// 0.6.19: by default the page only says things that stay true: how long each phase takes, never "in 4 weeks".
+		const standalone = renderPrintPages(timeProject, { today: Date.UTC(2026, 10, 6) / 864e5 })
+			.flatMap((svg) => [...svg.querySelectorAll("text")].map((t) => t.textContent ?? "")).join(" | ");
+		check(!/\bin \d+ weeks?\b|FROM 6 NOV|Today/.test(standalone), "by default the printed page has no countdowns and no 'Today'");
+		check(standalone.includes("6 weeks 4 days of work") && standalone.includes("Printed 6 Nov"), "…but each phase's length under its name, and the day it was printed");
 		check(/FROM 6 NOV/.test(inWeeks) && /LENGTH/.test(inWeeks), "the tables say what their numbers are: time from the print date, and length");
 		check(inWeeks.includes("in 20 weeks") && inWeeks.includes("2 weeks 3 days") && inWeeks.includes("Submission in 23 weeks") && !/months/.test(inWeeks),
 			"on paper, time is counted in weeks throughout by default (milestones, breaks, countdown)");

@@ -9,6 +9,7 @@ import { toCsv, toMarkdownTable } from "../src/core/table";
 import { agenda } from "../src/core/agenda";
 import { applyImport, parseImport } from "../src/core/importer";
 import { DEFAULT_PRINT, pageSize, printSettingsOf } from "../src/core/printSettings";
+import { phaseWorkDays } from "../src/core/durations";
 import { isOn, setFeature } from "../src/core/features";
 import { computeLayout } from "../src/core/layout";
 import { createFromTemplate } from "../src/core/templates";
@@ -544,6 +545,32 @@ t("on paper, a task's dates go inside its bar when they don't fit beside the nam
 	// A bar too short for them: the dates are left out, as before.
 	const short = at("2027-01-19");
 	assert.ok(!short.noteInside);
+});
+
+t("a phase's length is its working time: the days its tasks run, without its vacations and buffers", () => {
+	const p = normalizeProject({
+		start: "2026-11-10", end: "2027-04-19",
+		phases: [{ id: "fw", name: "Firmware" }, { id: "w", name: "Write up" }, { id: "v", name: "VEX" }, { id: "po", name: "Poster" }, { id: "x", name: "Empty" }],
+		items: [
+			{ id: "r1", type: "task", title: "Firmware", phase: "fw", start: "2026-12-04", end: "2027-01-16" },
+			{ id: "rb", type: "task", buffer: true, title: "Christmas vacation", phase: "fw", start: "2026-12-22", end: "2027-01-11" },
+			{ id: "w1", type: "task", title: "Write up", phase: "w", start: "2026-12-18", end: "2027-03-19" },
+			{ id: "wx", type: "task", buffer: true, title: "Christmas vacation", phase: "w", start: "2026-12-22", end: "2027-01-11" },
+			{ id: "we", type: "task", buffer: true, title: "Easter vacation", phase: "w", start: "2027-03-20", end: "2027-04-15" },
+			{ id: "v1", type: "task", title: "VEX", phase: "v", start: "2027-02-08", end: "2027-03-19" },
+			{ id: "ve", type: "task", buffer: true, title: "Easter vacation", phase: "v", start: "2027-03-19", end: "2027-04-11" },
+			{ id: "po", type: "task", title: "Poster", phase: "po", start: "2027-02-18", end: "2027-03-18" },
+			{ id: "pm", type: "milestone", title: "Poster ready", phase: "po", start: "2027-03-18" },
+			{ id: "xm", type: "milestone", title: "Only a milestone", phase: "x", start: "2027-01-01" },
+		],
+	});
+	assert.equal(phaseWorkDays(p, "fw"), 23, "6 weeks 2 days on the calendar, less 3 weeks of Christmas");
+	assert.equal(phaseWorkDays(p, "w"), 71, "13 weeks 1 day, less Christmas: 10 weeks 1 day");
+	assert.equal(phaseWorkDays(p, "v"), 39, "the day it shares with Easter doesn't count");
+	assert.equal(phaseWorkDays(p, "po"), 29, "4 weeks 1 day; milestones add nothing");
+	assert.equal(phaseWorkDays(p, "x"), 0);
+	assert.equal(formatLength(71, "weeks"), "10 weeks 1 day");
+	assert.equal(DEFAULT_PRINT.countdown || DEFAULT_PRINT.milestoneCountdown, false, "nothing that goes out of date, by default");
 });
 
 console.log(failed ? `\n${failed} failed` : `\nall nudge/journal/link/feature tests passed`);

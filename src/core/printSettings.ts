@@ -14,6 +14,10 @@ export interface PrintSettings {
 	captionPlace: "auto" | "above" | "below";
 	/** A table of the milestones under the chart, earliest first. */
 	milestoneTable: boolean;
+	/** In that table, how far off each milestone is from the day it's printed (it goes out of date). */
+	milestoneCountdown: boolean;
+	/** Under each phase's name, how long its work takes (without its vacations and buffers). */
+	phaseDurations: boolean;
 	/** Put the deadlines in that table too. */
 	tableDeadlines: boolean;
 	/** A task's dates after its name. */
@@ -34,7 +38,7 @@ export interface PrintSettings {
 	weeks: boolean;
 	/** Subtitle and author under the title. */
 	subtitle: boolean;
-	/** "Dissertation submission in 22 weeks" by the title. */
+	/** "Dissertation submission in 22 weeks" by the title (it goes out of date, so it's off unless chosen). */
 	countdown: boolean;
 }
 
@@ -46,6 +50,8 @@ export const DEFAULT_PRINT: PrintSettings = {
 	captionPlace: "auto",
 	timeUnit: "weeks",
 	milestoneTable: true,
+	milestoneCountdown: false,
+	phaseDurations: true,
 	tableDeadlines: false,
 	taskDates: true,
 	today: true,
@@ -56,7 +62,7 @@ export const DEFAULT_PRINT: PrintSettings = {
 	bufferTable: true,
 	weeks: true,
 	subtitle: true,
-	countdown: true,
+	countdown: false,
 };
 
 const CHOICES: { [K in keyof PrintSettings]?: readonly string[] } = {
