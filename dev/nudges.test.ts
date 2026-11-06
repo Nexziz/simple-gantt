@@ -388,6 +388,38 @@ t("buffers chain: one after a vacation joins the same bar, overlapping ones too,
 	assert.ok(!po3.labelInside && (po3.labelX >= bf3.x1 || po3.labelAnchor === "end"), "the long name sits clear of the chain");
 });
 
+t("on paper, a chain's captions never overlap: dates go first, then they shift, all on the page", () => {
+	const make = (end: string) => normalizeProject({
+		start: "2027-01-04", end,
+		phases: [{ id: "v", name: "VEX" }],
+		items: [
+			{ id: "t", type: "task", title: "VEX", phase: "v", start: "2027-02-10", end: "2027-03-25" },
+			{ id: "ev", type: "task", buffer: true, title: "Easter vacation", phase: "v", start: "2027-03-26", end: "2027-04-11" },
+			{ id: "bf", type: "task", buffer: true, title: "Buffer", phase: "v", start: "2027-04-12", end: "2027-04-19" },
+			{ id: "dl", type: "deadline", title: "Submission", start: "2027-04-20" },
+		],
+	});
+	const caps = (end: string, ppd: number) => {
+		const lay = computeLayout(make(end), { pxPerDay: ppd, showEmptyLanes: false, measure: (s: string) => s.length * 6, print: true, today });
+		const at = (id: string) => lay.placed.find((x) => x.item.id === id)!;
+		return { lay, ev: at("ev"), bf: at("bf") };
+	};
+	// Plenty of room: both keep their dates and sit over their own stretch of the bar.
+	const roomy = caps("2027-06-30", 8);
+	assert.ok(/·/.test(roomy.ev.label) && /·/.test(roomy.bf.label), "dates kept when there's room");
+	assert.ok(roomy.ev.labelX >= roomy.ev.x0 && roomy.bf.labelX >= roomy.ev.labelX + roomy.ev.labelW + 4);
+	// Tight against the end of the page (the printed case): no overlap, nothing off the page.
+	for (const [end, ppd] of [["2027-04-24", 6], ["2027-04-24", 4], ["2027-04-22", 3], ["2027-04-20", 2]] as const) {
+		const { lay, ev, bf } = caps(end, ppd);
+		assert.ok(bf.labelX >= ev.labelX + ev.labelW + 4, `captions apart at ${ppd}px/day: "${ev.label}" / "${bf.label}"`);
+		assert.ok(ev.labelX >= 0 && bf.labelX + bf.labelW <= lay.width, `captions on the page at ${ppd}px/day`);
+		assert.equal(ev.labelAnchor, "start");
+	}
+	const mid = caps("2027-04-24", 6);
+	assert.equal(mid.ev.label, "Easter vacation", "the long caption drops its dates first");
+	assert.ok(mid.ev.labelX >= mid.ev.x0, "…and stays over its own stretch of the bar");
+});
+
 t("buffer patterns: saved only when not the default, read leniently, only on buffers", () => {
 	const p = normalizeProject({
 		start: "2027-01-01", end: "2027-06-30",

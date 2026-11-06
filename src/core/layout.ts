@@ -434,27 +434,70 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 				chainIds.get(best)!.add(b.item.id);
 			}
 			const labelSize = g.fontSize - 1.5;
-			// Captions already placed above each host's row, so overlapping buffers don't write over each other.
-			const captions = new Map<number, [number, number][]>();
-			const attached = [...hostOf].sort(([a], [b]) => pre[a].x0 - pre[b].x0 || a - b);
-			for (const [i, j] of attached) {
-				const b = pre[i];
+			const capWidth = (t: string) => (t ? opts.measure(t, 500, labelSize) : 0);
+			const GAP = 8;
+			// Over the part that shows: a Plan B under its task only shows past the task's end.
+			const shownOf = (i: number) => (pre[i].mark.kind === "ghost" ? Math.max(pre[i].x0, pre[hostOf.get(i)!].x1) : pre[i].x0);
+			/**
+			 * Captions above one task's chain, left to right: each starts over its own stretch of the bar, is pushed
+			 * right past the one before it, and pulled back left from the chart's edge. How far any had to move
+			 * left of its own start is what's left to fix.
+			 */
+			const place = (group: number[], labels: string[]) => {
+				const ws = labels.map(capWidth);
+				const xs: number[] = [];
+				let prevEnd = -Infinity;
+				group.forEach((i, k) => {
+					xs[k] = ws[k] ? Math.max(shownOf(i) + 1, prevEnd + GAP) : shownOf(i) + 1;
+					if (ws[k]) prevEnd = xs[k] + ws[k];
+				});
+				let limit = width - 2;
+				for (let k = group.length - 1; k >= 0; k--) {
+					if (!ws[k]) continue;
+					if (xs[k] + ws[k] > limit) xs[k] = limit - ws[k];
+					limit = xs[k] - GAP;
+				}
+				const pulled = group.map((i, k) => (ws[k] ? Math.max(0, shownOf(i) + 1 - xs[k]) : 0));
+				return { ws, xs, pulled };
+			};
+			const groups = new Map<number, number[]>();
+			for (const [i, j] of [...hostOf].sort(([a], [b]) => pre[a].x0 - pre[b].x0 || a - b)) groups.set(j, [...(groups.get(j) ?? []), i]);
+			for (const [j, group] of groups) {
 				// On paper a buffer's caption says when it is; captions can be switched off.
-				if (opts.captions === false) b.label = "";
-				else if (print && b.label && b.mark.kind === "item") b.label = `${b.label} · ${shortRange(b.s, b.e)}`;
-				b.labelW = b.label ? opts.measure(b.label, 500, labelSize) : 0;
-				b.labelInside = false;
-				// Over the part that shows: a Plan B under its task only shows past the task's end.
-				const shown = b.mark.kind === "ghost" ? Math.max(b.x0, pre[j].x1) : b.x0;
-				const taken = captions.get(j) ?? [];
-				let x = shown + 1;
-				if (b.labelW) for (const [c0, c1] of [...taken].sort((p, q) => p[0] - q[0])) if (x < c1 + 8 && x + b.labelW > c0 - 8) x = c1 + 8;
-				b.labelAnchor = x + b.labelW + 2 > width ? "end" : "start";
-				b.labelX = b.labelAnchor === "end" ? (x === shown + 1 ? b.x1 : width - 2) : x;
-				const [c0, c1] = b.labelAnchor === "end" ? [b.labelX - b.labelW, b.labelX] : [b.labelX, b.labelX + b.labelW];
-				if (b.labelW) captions.set(j, [...taken, [c0, c1]]);
-				b.from = Math.min(pre[j].from, b.x0);
-				b.to = Math.max(b.x1, b.labelW ? c1 : b.x1);
+				const plain = group.map((i) => (opts.captions === false ? "" : pre[i].label));
+				const dated = group.map((i, k) => (print && plain[k] && pre[i].mark.kind === "item" ? `${plain[k]} · ${shortRange(pre[i].s, pre[i].e)}` : plain[k]));
+				const labels = [...dated];
+				let fit = place(group, labels);
+				// Not enough room: like a task's label, a caption drops its dates before it moves off its own stretch,
+				// the one that most needs the room first.
+				while (fit.pulled.some((d) => d > 0.5)) {
+					let k = -1;
+					group.forEach((_, m) => {
+						if (labels[m] !== plain[m] && (k < 0 || fit.ws[m] > fit.ws[k])) k = m;
+					});
+					if (k < 0) break;
+					labels[k] = plain[k];
+					fit = place(group, labels);
+				}
+				// Still too tight against the chart's left edge: shorten each to the room it has.
+				if (fit.xs.some((x, k) => fit.ws[k] && x < 2)) {
+					group.forEach((i, k) => {
+						const next = group.findIndex((_, m) => m > k && labels[m]);
+						const room = (next >= 0 ? shownOf(group[next]) + 1 - GAP : width - 2) - (shownOf(i) + 1);
+						labels[k] = shorten(labels[k], Math.max(0, room), capWidth);
+					});
+					fit = place(group, labels);
+				}
+				group.forEach((i, k) => {
+					const b = pre[i];
+					b.label = labels[k];
+					b.labelW = fit.ws[k];
+					b.labelInside = false;
+					b.labelAnchor = "start";
+					b.labelX = fit.xs[k];
+					b.from = Math.min(pre[j].from, b.x0, b.labelW ? b.labelX : b.x0);
+					b.to = Math.max(b.x1, b.labelW ? b.labelX + b.labelW : b.x1);
+				});
 			}
 			// Each task's own label moves past its whole chain (or out of the bar, if a buffer covers it).
 			for (const j of new Set(hostOf.values())) {
