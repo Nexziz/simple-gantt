@@ -211,6 +211,8 @@ function bufferTable(rows: BreakRow[], set: PrintSettings, theme: Theme, measure
 	const g = svgEl("g", {});
 	const defs = svgEl("defs", {}, g);
 	text(g, 0, 8, "VACATIONS AND BUFFERS", { fill: theme.inkMuted, "font-size": 9.5, "font-weight": 700, "letter-spacing": "0.08em" });
+	// Says what the number on the right is: how long the break lasts.
+	for (let c = 0; c < cols; c++) text(g, c * colW + colW - 16, 8, "LENGTH", columnHead(theme));
 	svgEl("line", { x1: 0, x2: width, y1: 17.5, y2: 17.5, stroke: theme.axis }, g);
 	const swatchW = 24;
 	const dateW = Math.max(...rows.map((r) => measure(shortRange(r.s, r.e), 600, fs))) + 12;
@@ -252,6 +254,8 @@ function milestoneTable(project: Project, set: PrintSettings, theme: Theme, meas
 	const g = svgEl("g", {});
 	const heading = set.tableDeadlines ? "MILESTONES AND DEADLINES" : "MILESTONES";
 	text(g, 0, 8, heading, { fill: theme.inkMuted, "font-size": 9.5, "font-weight": 700, "letter-spacing": "0.08em" });
+	// Says what the number on the right is: how far off it is from the day this was printed (not how long anything takes).
+	if (today != null) for (let c = 0; c < cols; c++) text(g, c * colW + colW - 16, 8, `FROM ${formatDay(today, false).toUpperCase()}`, columnHead(theme));
 	svgEl("line", { x1: 0, x2: width, y1: 17.5, y2: 17.5, stroke: theme.axis }, g);
 	const dateW = measure("30 Sep", 600, fs) + 10;
 	items.forEach((it, k) => {
@@ -286,6 +290,11 @@ function milestoneTable(project: Project, set: PrintSettings, theme: Theme, meas
 			svgEl("line", { x1: x, x2: x + colW - 16, y1: y + rowH / 2, y2: y + rowH / 2, stroke: theme.grid }, g);
 	});
 	return { node: g, height: headH + perCol * rowH };
+}
+
+/** A small heading over a table's right-hand column. */
+function columnHead(theme: Theme) {
+	return { fill: theme.inkMuted, "font-size": 8.5, "font-weight": 700, "letter-spacing": "0.06em", "text-anchor": "end" } as const;
 }
 
 function fit(s: string, max: number, measure: Measure, weight: number, size: number): string {

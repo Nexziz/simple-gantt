@@ -150,6 +150,8 @@ export interface Placed {
 	labelAnchor: "start" | "end";
 	/** Extra detail after the label in small grey text (on paper: a task's dates). Included in labelW. */
 	note?: string;
+	/** The note is drawn inside the bar (it didn't fit beside the label); then it isn't in labelW. */
+	noteInside?: boolean;
 	/** A buffer drawn on its task's row: the task's id. Its label sits above it. */
 	attachedTo?: string;
 	/** Ends that join another bar (a buffer and its task) are drawn square. */
@@ -375,7 +377,7 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 				? opts.measure(text, weight, g.fontSize) + (badge ? MILESTONE_BADGE_PAD * 2 : 0) + (withNote ? NOTE_GAP + opts.measure(withNote, 400, g.fontSize - 1.5) : 0)
 				: 0;
 			let labelW = widthOf(label, note);
-			let x0: number, x1: number, labelX: number, labelInside = false, labelAnchor: "start" | "end" = "start";
+			let x0: number, x1: number, labelX: number, labelInside = false, labelAnchor: "start" | "end" = "start", noteInside = false;
 			if (item.type === "task" || item.type === "location") {
 				x0 = xOf(s);
 				x1 = Math.max(x0 + 3, xOf(e + 1));
@@ -397,7 +399,10 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 				const roomRight = width - (x1 + g.labelGap) - 4;
 				const roomLeft = x0 - g.labelGap - 4;
 				if (labelW > roomRight && labelW > roomLeft && note) {
-					note = "";
+					// The dates go inside the bar when it's long enough for them; only otherwise are they left out.
+					const noteW = opts.measure(note, 400, g.fontSize - 1.5);
+					if (noteW + 14 <= x1 - x0) noteInside = true;
+					else note = "";
 					labelW = widthOf(label, "");
 				}
 				const left = labelW > roomRight && (labelW <= roomLeft || roomLeft > roomRight);
@@ -413,7 +418,7 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 			}
 			const from = labelInside ? x0 : Math.min(x0, labelAnchor === "end" ? labelX - labelW : x0);
 			const to = labelInside ? x1 : Math.max(x1, labelAnchor === "start" ? labelX + labelW : x1);
-			return { mark, item, s, e, label, note, labelW, x0, x1, labelX, labelInside, labelAnchor, from, to, captionTier: undefined as Placed["captionTier"] };
+			return { mark, item, s, e, label, note, noteInside, labelW, x0, x1, labelX, labelInside, labelAnchor, from, to, captionTier: undefined as Placed["captionTier"] };
 		});
 		// Buffer time sits on the row of the task it belongs to (one it overlaps, or follows within a week),
 		// joined to the bar like an extension of it, with its name above. Buffers chain: one that overlaps or
@@ -495,6 +500,13 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 					b.from = Math.min(pre[j].from, b.x0, w ? x : b.x0);
 					b.to = Math.max(b.x1, w ? x + w : b.x1);
 				}
+			}
+			// Dates inside a bar need that stretch of it clear of vacations and buffers.
+			for (const [j, group] of groups) {
+				const t = pre[j];
+				if (!t.noteInside) continue;
+				const end = t.x0 + opts.measure(t.note ?? "", 400, g.fontSize - 1.5) + 14;
+				if (group.some((i) => pre[i].mark.kind !== "ghost" && pre[i].x0 < end && pre[i].x1 > t.x0)) [t.note, t.noteInside] = ["", false];
 			}
 			// Each task's own label moves past its whole chain (or out of the bar, if a buffer covers it).
 			for (const j of new Set(hostOf.values())) {
@@ -595,6 +607,7 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 				color: group.phase?.color ?? (p.item.type === "location" ? null : phaseColor(p.item.phase ?? parent?.phase)),
 				label: p.label,
 				note: p.note || undefined,
+				...(p.note && p.noteInside ? { noteInside: true } : {}),
 				labelW: p.labelW,
 				labelX: p.labelX,
 				labelInside: p.labelInside,

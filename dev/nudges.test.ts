@@ -526,5 +526,25 @@ t("labels never run off the chart: other side, then without the date, then short
 	}
 });
 
+t("on paper, a task's dates go inside its bar when they don't fit beside the name", () => {
+	const measure = (s: string) => s.length * 6;
+	const make = (end: string) => normalizeProject({
+		start: "2027-01-01", end: "2027-03-01",
+		phases: [{ id: "a", name: "A" }],
+		items: [
+			{ id: "t", type: "task", title: "SBOM creation with vulnerability mapping, with adviser", phase: "a", start: "2027-01-16", end },
+			{ id: "b", type: "task", title: "Before", phase: "a", start: "2027-01-01", end: "2027-01-05" },
+		],
+	});
+	const at = (end: string) => computeLayout(make(end), { pxPerDay: 5, showEmptyLanes: false, measure, print: true }).placed.find((x) => x.item.id === "t")!;
+	const long = at("2027-02-08");
+	assert.equal(long.note, "16 Jan – 8 Feb", "the dates are kept");
+	assert.ok(long.noteInside, "…inside the bar");
+	assert.ok(!long.labelInside && long.labelW < 55 * 6 + 4, "the name stays beside it, without the dates");
+	// A bar too short for them: the dates are left out, as before.
+	const short = at("2027-01-19");
+	assert.ok(!short.noteInside);
+});
+
 console.log(failed ? `\n${failed} failed` : `\nall nudge/journal/link/feature tests passed`);
 if (failed) process.exit(1);

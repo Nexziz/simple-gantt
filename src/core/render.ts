@@ -519,7 +519,13 @@ function paintItem(parent: Element, p: Placed, layout: Layout, o: PaintOptions, 
 		const t = text(g, p.labelX, p.cy, p.label, {
 			...labelAttrs, ...(p.labelInside ? {} : halo(theme)), fill: p.labelInside ? (p.color ? inkOnFill(p.color) : "#ffffff") : theme.ink,
 		});
-		if (p.note) {
+		if (p.note && p.noteInside) {
+			// The dates didn't fit beside the name: they sit inside the bar instead.
+			text(g, p.x0 + 7, p.cy, p.note, {
+				...labelAttrs, "text-anchor": "start", "font-size": layout.g.fontSize - 1.5, "font-weight": 400,
+				fill: p.color ? inkOnFill(p.color) : "#ffffff", "fill-opacity": 0.85, "pointer-events": "none",
+			});
+		} else if (p.note) {
 			const n = svgEl("tspan", {
 				dx: NOTE_GAP, "font-size": layout.g.fontSize - 1.5, "font-weight": 400,
 				fill: p.labelInside ? (p.color ? inkOnFill(p.color) : "#ffffff") : theme.inkMuted, "fill-opacity": p.labelInside ? 0.8 : 1,

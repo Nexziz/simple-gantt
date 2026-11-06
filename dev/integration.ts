@@ -623,6 +623,7 @@ function check(cond: unknown, msg: string) {
 			renderPrintPages(timeProject, { today: Date.UTC(2026, 10, 6) / 864e5, settings: { ...printSettingsOf(undefined), timeUnit } })
 				.flatMap((svg) => [...svg.querySelectorAll("text")].map((t) => t.textContent ?? "")).join(" | ");
 		const inWeeks = printedWords("weeks");
+		check(/FROM 6 NOV/.test(inWeeks) && /LENGTH/.test(inWeeks), "the tables say what their numbers are: time from the print date, and length");
 		check(inWeeks.includes("in 20 weeks") && inWeeks.includes("2 weeks 3 days") && inWeeks.includes("Submission in 23 weeks") && !/months/.test(inWeeks),
 			"on paper, time is counted in weeks throughout by default (milestones, breaks, countdown)");
 		check(printedWords("auto").includes("in 4.5 months") && printedWords("days").includes("in 139 days") && printedWords("days").includes("17 days"), "…or in days, or weeks and months");
