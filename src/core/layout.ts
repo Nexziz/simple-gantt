@@ -155,6 +155,20 @@ export interface Placed {
 	/** Ends that join another bar (a buffer and its task) are drawn square. */
 	squareLeft?: boolean;
 	squareRight?: boolean;
+	/** Where an attached buffer's name goes when names would collide: above (0), below the bar (1), a second line above (2). */
+	captionTier?: 0 | 1 | 2;
+}
+
+/** The space a line of buffer names takes above (or below) a row. */
+export function captionRoom(g: Geometry): number {
+	return Math.round(g.fontSize + 1);
+}
+
+/** The vertical centre of an attached buffer's (or Plan B's) name. */
+export function captionY(p: Placed, g: Geometry): number {
+	const top = p.cy - p.lane.markH / 2;
+	if (p.captionTier === 1) return p.cy + p.lane.markH / 2 + g.fontSize / 2 + 2.5;
+	return top - g.fontSize / 2 - 1.5 - (p.captionTier === 2 ? captionRoom(g) : 0);
 }
 
 export interface Layout {
@@ -200,6 +214,10 @@ export interface LayoutOptions {
 	taskDates?: boolean;
 	/** The names of buffers and Plan Bs drawn above their task (default on). */
 	captions?: boolean;
+	/** Paper: when each buffer runs, after its name (default on). */
+	captionDates?: boolean;
+	/** Where buffer names go: above the bar unless crowded (default), always above, or under it. */
+	captionPlace?: "auto" | "above" | "below";
 	/** Show the week row in the date header; by default it shows when there's room. */
 	weeks?: boolean;
 }
@@ -395,7 +413,7 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 			}
 			const from = labelInside ? x0 : Math.min(x0, labelAnchor === "end" ? labelX - labelW : x0);
 			const to = labelInside ? x1 : Math.max(x1, labelAnchor === "start" ? labelX + labelW : x1);
-			return { mark, item, s, e, label, note, labelW, x0, x1, labelX, labelInside, labelAnchor, from, to };
+			return { mark, item, s, e, label, note, labelW, x0, x1, labelX, labelInside, labelAnchor, from, to, captionTier: undefined as Placed["captionTier"] };
 		});
 		// Buffer time sits on the row of the task it belongs to (one it overlaps, or follows within a week),
 		// joined to the bar like an extension of it, with its name above. Buffers chain: one that overlaps or
@@ -435,69 +453,48 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 			}
 			const labelSize = g.fontSize - 1.5;
 			const capWidth = (t: string) => (t ? opts.measure(t, 500, labelSize) : 0);
-			const GAP = 8;
+			const GAP = 10;
 			// Over the part that shows: a Plan B under its task only shows past the task's end.
 			const shownOf = (i: number) => (pre[i].mark.kind === "ghost" ? Math.max(pre[i].x0, pre[hostOf.get(i)!].x1) : pre[i].x0);
-			/**
-			 * Captions above one task's chain, left to right: each starts over its own stretch of the bar, is pushed
-			 * right past the one before it, and pulled back left from the chart's edge. How far any had to move
-			 * left of its own start is what's left to fix.
-			 */
-			const place = (group: number[], labels: string[]) => {
-				const ws = labels.map(capWidth);
-				const xs: number[] = [];
-				let prevEnd = -Infinity;
-				group.forEach((i, k) => {
-					xs[k] = ws[k] ? Math.max(shownOf(i) + 1, prevEnd + GAP) : shownOf(i) + 1;
-					if (ws[k]) prevEnd = xs[k] + ws[k];
-				});
-				let limit = width - 2;
-				for (let k = group.length - 1; k >= 0; k--) {
-					if (!ws[k]) continue;
-					if (xs[k] + ws[k] > limit) xs[k] = limit - ws[k];
-					limit = xs[k] - GAP;
-				}
-				const pulled = group.map((i, k) => (ws[k] ? Math.max(0, shownOf(i) + 1 - xs[k]) : 0));
-				return { ws, xs, pulled };
-			};
 			const groups = new Map<number, number[]>();
 			for (const [i, j] of [...hostOf].sort(([a], [b]) => pre[a].x0 - pre[b].x0 || a - b)) groups.set(j, [...(groups.get(j) ?? []), i]);
 			for (const [j, group] of groups) {
-				// On paper a buffer's caption says when it is; captions can be switched off.
-				const plain = group.map((i) => (opts.captions === false ? "" : pre[i].label));
-				const dated = group.map((i, k) => (print && plain[k] && pre[i].mark.kind === "item" ? `${plain[k]} · ${shortRange(pre[i].s, pre[i].e)}` : plain[k]));
-				const labels = [...dated];
-				let fit = place(group, labels);
-				// Not enough room: like a task's label, a caption drops its dates before it moves off its own stretch,
-				// the one that most needs the room first.
-				while (fit.pulled.some((d) => d > 0.5)) {
-					let k = -1;
-					group.forEach((_, m) => {
-						if (labels[m] !== plain[m] && (k < 0 || fit.ws[m] > fit.ws[k])) k = m;
-					});
-					if (k < 0) break;
-					labels[k] = plain[k];
-					fit = place(group, labels);
-				}
-				// Still too tight against the chart's left edge: shorten each to the room it has.
-				if (fit.xs.some((x, k) => fit.ws[k] && x < 2)) {
-					group.forEach((i, k) => {
-						const next = group.findIndex((_, m) => m > k && labels[m]);
-						const room = (next >= 0 ? shownOf(group[next]) + 1 - GAP : width - 2) - (shownOf(i) + 1);
-						labels[k] = shorten(labels[k], Math.max(0, room), capWidth);
-					});
-					fit = place(group, labels);
-				}
-				group.forEach((i, k) => {
+				// Each name starts over its own stretch of the bar. When two would collide, the later one goes under
+				// the bar instead, then onto a second line above: names keep their dates and never overlap.
+				const lines: [number, number][][] = [[], [], []];
+				const order = opts.captionPlace === "below" ? ([1, 0, 2] as const) : opts.captionPlace === "above" ? ([0, 2, 1] as const) : ([0, 1, 2] as const);
+				const free = (tier: number, x0: number, x1: number) => lines[tier].every(([a, b]) => x1 + GAP <= a || x0 >= b + GAP);
+				for (const i of group) {
 					const b = pre[i];
-					b.label = labels[k];
-					b.labelW = fit.ws[k];
+					// On paper a buffer's name says when it is; names (and their dates) can be switched off.
+					let label = opts.captions === false ? "" : b.label;
+					if (label && print && b.mark.kind === "item" && opts.captionDates !== false) label = `${label} · ${shortRange(b.s, b.e)}`;
+					let w = capWidth(label);
+					// At the chart's right edge it's pulled back in.
+					let x = Math.max(2, Math.min(shownOf(i) + 1, width - 2 - w));
+					let tier: 0 | 1 | 2 = 0;
+					if (w) {
+						const open = order.find((t) => free(t, x, x + w));
+						if (open !== undefined) tier = open;
+						else {
+							// No line has room: the one that frees up soonest, the name after what's there, shortened if it must be.
+							const ends = lines.map((l) => Math.max(...l.map(([, e]) => e)));
+							tier = ends.indexOf(Math.min(...ends)) as 0 | 1 | 2;
+							x = ends[tier] + GAP;
+							label = shorten(label, Math.max(0, width - 2 - x), capWidth);
+							w = capWidth(label);
+						}
+						lines[tier].push([x, x + w]);
+					}
+					b.label = label;
+					b.labelW = w;
 					b.labelInside = false;
 					b.labelAnchor = "start";
-					b.labelX = fit.xs[k];
-					b.from = Math.min(pre[j].from, b.x0, b.labelW ? b.labelX : b.x0);
-					b.to = Math.max(b.x1, b.labelW ? b.labelX + b.labelW : b.x1);
-				});
+					b.labelX = x;
+					b.captionTier = tier;
+					b.from = Math.min(pre[j].from, b.x0, w ? x : b.x0);
+					b.to = Math.max(b.x1, w ? x + w : b.x1);
+				}
 			}
 			// Each task's own label moves past its whole chain (or out of the bar, if a buffer covers it).
 			for (const j of new Set(hostOf.values())) {
@@ -523,14 +520,19 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 		packed.forEach((i, k) => (rows[i] = packedRows[k]));
 		for (const [i, j] of hostOf) rows[i] = rows[j];
 		const rowCount = Math.max(1, ...rows.map((r) => r + 1));
-		// Rows with a buffer's name above them get a little headroom for it.
-		const headroom = Math.round(g.fontSize + 1);
+		// Rows with a buffer's name above (or under) them get a little room for it.
+		const headroom = captionRoom(g);
 		const rowTop: number[] = [];
+		let footLast = 0;
 		for (let r = 0, extra = 0; r < rowCount; r++) {
-			if ([...hostOf.keys()].some((i) => rows[i] === r && pre[i].label)) extra += headroom;
+			const tiers = new Set([...hostOf.keys()].filter((i) => rows[i] === r && pre[i].label).map((i) => pre[i].captionTier ?? 0));
+			if (tiers.size && (tiers.has(0) || tiers.has(2))) extra += headroom;
+			if (tiers.has(2)) extra += headroom;
 			rowTop[r] = r * pitch + extra;
+			footLast = tiers.has(1) ? headroom : 0;
+			extra += footLast;
 		}
-		const contentH = rowTop[rowCount - 1] + markH;
+		const contentH = rowTop[rowCount - 1] + markH + footLast;
 		const height = Math.max(strip ? 36 : group.collapsed ? g.minLaneH - 12 : g.minLaneH, contentH + g.lanePad * 2);
 		const contentTop = y + (height - contentH) / 2;
 
@@ -598,6 +600,7 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 				labelInside: p.labelInside,
 				labelAnchor: p.labelAnchor,
 				...joins(i),
+				...(p.captionTier ? { captionTier: p.captionTier } : {}),
 			});
 		});
 		y += height;

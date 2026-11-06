@@ -8,6 +8,8 @@ export interface PrintSettings {
 	/** Room between the rows: more makes arrows and steps easier to follow. */
 	spacing: "tight" | "normal" | "roomy";
 	textSize: "small" | "normal" | "large";
+	/** Where buffer, vacation and Plan B names go: above the bar, under it, or above unless crowded (auto). */
+	captionPlace: "auto" | "above" | "below";
 	/** A table of the milestones under the chart, earliest first. */
 	milestoneTable: boolean;
 	/** Put the deadlines in that table too. */
@@ -18,8 +20,14 @@ export interface PrintSettings {
 	today: boolean;
 	/** Arrows between linked steps. */
 	arrows: boolean;
+	/** Also the long arrows that run down through other phases, as on the board. */
+	longArrows: boolean;
 	/** Names of buffers and Plan Bs above their task. */
 	captions: boolean;
+	/** When each vacation and buffer runs, after its name. */
+	captionDates: boolean;
+	/** A table of the vacations and buffers under the chart, with their dates and patterns. */
+	bufferTable: boolean;
 	/** The row of week dates in the header. */
 	weeks: boolean;
 	/** Subtitle and author under the title. */
@@ -33,12 +41,16 @@ export const DEFAULT_PRINT: PrintSettings = {
 	orientation: "landscape",
 	spacing: "normal",
 	textSize: "normal",
+	captionPlace: "auto",
 	milestoneTable: true,
 	tableDeadlines: false,
 	taskDates: true,
 	today: true,
 	arrows: true,
+	longArrows: true,
 	captions: true,
+	captionDates: true,
+	bufferTable: true,
 	weeks: true,
 	subtitle: true,
 	countdown: true,
@@ -49,6 +61,7 @@ const CHOICES: { [K in keyof PrintSettings]?: readonly string[] } = {
 	orientation: ["landscape", "portrait"],
 	spacing: ["tight", "normal", "roomy"],
 	textSize: ["small", "normal", "large"],
+	captionPlace: ["auto", "above", "below"],
 };
 
 /** Read print settings from a note, keeping only valid values. */

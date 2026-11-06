@@ -3261,7 +3261,7 @@ export class GanttBoard {
 
 		const syncs: (() => void)[] = [];
 		const sync = () => syncs.forEach((f) => f());
-		const choice = <K extends "paper" | "orientation" | "spacing" | "textSize">(label: string, key: K, options: [PrintSettings[K], string][]) => {
+		const choice = <K extends "paper" | "orientation" | "spacing" | "textSize" | "captionPlace">(label: string, key: K, options: [PrintSettings[K], string][]) => {
 			const field = h("div", { cls: "sg-field" }, controls);
 			h("span", { cls: "sg-label", text: label }, field);
 			const seg = h("div", { cls: "sg-seg sg-seg-wide", attrs: { role: "group", "aria-label": label } }, field);
@@ -3275,6 +3275,7 @@ export class GanttBoard {
 		choice("Orientation", "orientation", [["landscape", "Landscape"], ["portrait", "Portrait"]]);
 		choice("Space between rows", "spacing", [["tight", "Tight"], ["normal", "Normal"], ["roomy", "Roomy"]]);
 		choice("Text size", "textSize", [["small", "Small"], ["normal", "Normal"], ["large", "Large"]]);
+		choice("Buffer and vacation names", "captionPlace", [["auto", "Auto"], ["above", "Above"], ["below", "Below"]]);
 
 		h("div", { cls: "sg-section-title", text: "Show" }, controls);
 		const list = h("div", { cls: "sg-features" }, controls);
@@ -3293,10 +3294,13 @@ export class GanttBoard {
 		};
 		toggle("milestoneTable", "Milestone table", "Every milestone under the chart, earliest first, with how far off it is");
 		toggle("tableDeadlines", "Deadlines in the table", "List the deadlines there too", "milestoneTable");
+		toggle("bufferTable", "Vacations and buffers table", "Each one under the chart with its dates, length and pattern");
 		toggle("taskDates", "Task dates", "Each task's dates after its name");
 		toggle("today", "Today line", "Where the plan stands on the day you print");
 		toggle("arrows", "Arrows", "Between steps that follow each other");
-		toggle("captions", "Buffer and Plan B names", "Above the hatched and dashed parts of a bar");
+		toggle("longArrows", "Arrows across phases", "Also the long ones that run down through other phases, as on the board", "arrows");
+		toggle("captions", "Buffer, vacation and Plan B names", "Over the patterned and dashed parts of a bar");
+		toggle("captionDates", "With their dates", "When each vacation and buffer runs, e.g. 26 Mar – 11 Apr", "captions");
 		toggle("weeks", "Week dates", "The row of dates under the months");
 		toggle("subtitle", "Subtitle and author", "Under the title");
 		toggle("countdown", "Countdown", "Time left to the next deadline, by the title");

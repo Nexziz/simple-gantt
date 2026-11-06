@@ -1,10 +1,10 @@
 import { formatDay, formatDuration, toDay } from "./dates";
-import { COMPACT, Geometry, Lane, Layout, Measure, PRINT_GEOMETRY, computeLayout } from "./layout";
+import { COMPACT, Geometry, Lane, Layout, Measure, PRINT_GEOMETRY, computeLayout, shortRange } from "./layout";
 import { nextDeadline } from "./nudges";
 import { PrintSettings, pageSize, printSettingsOf } from "./printSettings";
-import { NS, PaintOptions, formatPeriod, makeMeasure, nest, paintBody, paintHeader, paintLabels, svgEl, text } from "./render";
+import { NS, PaintOptions, bufferPattern, formatPeriod, makeMeasure, nest, paintBody, paintHeader, paintLabels, svgEl, text } from "./render";
 import { PRINT_THEME, Theme } from "./theme";
-import { Project, isDone } from "./types";
+import { BufferPattern, Project, isDone } from "./types";
 
 /** A4 landscape in CSS pixels at 96 dpi (297 × 210 mm), so text prints at its real size. */
 export const A4_LANDSCAPE = { width: 1123, height: 794, widthPt: 841.89, heightPt: 595.28 };
@@ -41,15 +41,15 @@ export function renderPrintPages(project: Project, opts: PrintOptions = {}): SVG
 	const compare = !!(opts.compare && project.baseline);
 	const today = set.today ? (opts.today ?? null) : null;
 
-	// The milestone table under the chart (on the last page) takes its share of the sheet first.
-	const table = set.milestoneTable ? milestoneTable(project, set, theme, measure, W - 2 * M, opts.today ?? null) : null;
+	// The tables under the chart (on the last page) take their share of the sheet first.
+	const table = bottomTables(project, set, theme, measure, W - 2 * M, opts.today ?? null);
 	const tableH = table ? table.height + gap : 0;
 	const room = (titleH: number, headerH: number) => H - 2 * M - titleH - headerH - tableH;
 
 	// Rows as roomy as the sheet allows, so the step from a bar to the next one (and its arrow) is easy to follow.
 	const layoutOpts = {
 		showEmptyLanes: false, measure, print: true,
-		taskDates: set.taskDates, captions: set.captions, weeks: set.weeks ? undefined : false,
+		taskDates: set.taskDates, captions: set.captions, captionDates: set.captionDates, captionPlace: set.captionPlace, weeks: set.weeks ? undefined : false,
 	};
 	let layout = computeLayout(project, { ...layoutOpts, pxPerDay: 1, density: "print" });
 	const days = layout.viewEnd - layout.viewStart + 1;
@@ -74,7 +74,10 @@ export function renderPrintPages(project: Project, opts: PrintOptions = {}): SVG
 		const roomier = sized({ ...g, lanePad: g.lanePad * f, minLaneH: g.minLaneH * Math.min(f, 1.4) });
 		if (roomier.bodyH <= room(title1, layout.headerH)) layout = roomier;
 	}
-	const paint: PaintOptions = { theme, measure, interactive: false, print: true, today, hideLinks: !set.arrows, plan: compare ? project.baseline : null };
+	const paint: PaintOptions = {
+		theme, measure, interactive: false, print: true, today, hideLinks: !set.arrows, shortLinksOnly: !set.longArrows,
+		plan: compare ? project.baseline : null,
+	};
 	// A little too tall still fits on one sheet, slightly smaller; only much longer plans continue on a second page.
 	const SHRINK = 0.85;
 
@@ -141,7 +144,7 @@ export function renderPrintPages(project: Project, opts: PrintOptions = {}): SVG
 		nest(chart, paintBody(slice, paint), labelWidth, layout.headerH);
 		svgEl("rect", { x: 0.5, y: 0.5, width: chartW - 1, height: chartH - 1, rx: 6, fill: "none", stroke: theme.axis }, chart);
 
-		// The milestone table, right under the chart.
+		// The tables, right under the chart.
 		if (last && table) {
 			table.node.setAttribute("transform", `translate(${M}, ${M + titleH + chartH * scale + gap})`);
 			svg.appendChild(table.node);
@@ -149,6 +152,86 @@ export function renderPrintPages(project: Project, opts: PrintOptions = {}): SVG
 		if (pages.length > 1) text(svg, W - M, H - M / 2, `Page ${i + 1} of ${pages.length}`, { fill: theme.inkMuted, "font-size": 8.5, "text-anchor": "end" });
 		return svg;
 	});
+}
+
+/** The milestone table and the vacations-and-buffers table, side by side when there are both. */
+function bottomTables(project: Project, set: PrintSettings, theme: Theme, measure: Measure, width: number, today: number | null): { node: SVGGElement; height: number } | null {
+	const breaks = set.bufferTable ? bufferRows(project, theme) : [];
+	const hasMilestones = set.milestoneTable && project.items.some((i) => !i.dropped && (i.type === "milestone" || (set.tableDeadlines && i.type === "deadline")));
+	const sideW = breaks.length && hasMilestones ? Math.round(Math.min(400, Math.max(320, width * 0.36))) : width;
+	const gapX = 28;
+	const left = hasMilestones ? milestoneTable(project, set, theme, measure, breaks.length ? width - sideW - gapX : width, today) : null;
+	const right = breaks.length ? bufferTable(breaks, set, theme, measure, left ? sideW : width) : null;
+	if (!left && !right) return null;
+	const g = svgEl("g", {});
+	if (left) g.appendChild(left.node);
+	if (right) {
+		if (left) right.node.setAttribute("transform", `translate(${width - sideW}, 0)`);
+		g.appendChild(right.node);
+	}
+	return { node: g, height: Math.max(left?.height ?? 0, right?.height ?? 0) };
+}
+
+interface BreakRow {
+	title: string;
+	s: number;
+	e: number;
+	color: string;
+	pattern: BufferPattern;
+}
+
+/** Each vacation and buffer once (the same break on several rows is listed once), earliest first. */
+function bufferRows(project: Project, theme: Theme): BreakRow[] {
+	const rows = new Map<string, BreakRow & { colors: Set<string> }>();
+	for (const it of project.items) {
+		if (it.type !== "task" || !it.buffer || it.dropped) continue;
+		const s = toDay(it.start), e = it.end ? toDay(it.end) : s;
+		const key = `${it.title.trim().toLowerCase()}|${s}|${e}`;
+		const color = theme.palette[project.phases.find((p) => p.id === it.phase)?.color ?? "blue"];
+		const row = rows.get(key);
+		if (row) row.colors.add(color);
+		else rows.set(key, { title: it.title, s, e, color, pattern: it.pattern ?? "diagonal", colors: new Set([color]) });
+	}
+	// One that runs through several phases is shown in a neutral colour.
+	return [...rows.values()]
+		.map(({ colors, ...r }) => ({ ...r, color: colors.size > 1 ? theme.inkSecondary : r.color }))
+		.sort((a, b) => a.s - b.s || a.title.localeCompare(b.title));
+}
+
+let tableIds = 0;
+
+/** The vacations and buffers, in columns like the milestones: pattern, dates, name and how long. */
+function bufferTable(rows: BreakRow[], set: PrintSettings, theme: Theme, measure: Measure, width: number): { node: SVGGElement; height: number } {
+	const fs = TEXT[set.textSize].font - 1;
+	const rowH = Math.round(fs * 1.75);
+	const cols = Math.max(1, Math.min(rows.length, Math.floor(width / 320), 3));
+	const perCol = Math.ceil(rows.length / cols);
+	const colW = width / cols;
+	const headH = 22;
+	const g = svgEl("g", {});
+	const defs = svgEl("defs", {}, g);
+	text(g, 0, 8, "VACATIONS AND BUFFERS", { fill: theme.inkMuted, "font-size": 9.5, "font-weight": 700, "letter-spacing": "0.08em" });
+	svgEl("line", { x1: 0, x2: width, y1: 17.5, y2: 17.5, stroke: theme.axis }, g);
+	const swatchW = 24;
+	const dateW = Math.max(...rows.map((r) => measure(shortRange(r.s, r.e), 600, fs))) + 12;
+	rows.forEach((r, k) => {
+		const col = Math.floor(k / perCol), row = k % perCol;
+		const x = col * colW, y = headH + row * rowH + rowH / 2;
+		const id = `sg-break-${++tableIds}`;
+		bufferPattern(defs, id, r.color, r.pattern);
+		svgEl("rect", { x: x + 0.5, y: y - 5.5, width: swatchW, height: 11, rx: 3, fill: theme.surface }, g);
+		svgEl("rect", { x: x + 0.5, y: y - 5.5, width: swatchW, height: 11, rx: 3, fill: `url(#${id})`, stroke: r.color, "stroke-opacity": 0.8 }, g);
+		const dx = x + swatchW + 10;
+		text(g, dx, y, shortRange(r.s, r.e), { fill: theme.ink, "font-size": fs, "font-weight": 600 });
+		const length = formatDuration(r.e - r.s + 1);
+		const lengthW = measure(length, 400, fs - 0.5);
+		const nameX = dx + dateW;
+		text(g, nameX, y, fit(r.title, colW - (nameX - x) - lengthW - 22, measure, 500, fs), { fill: theme.ink, "font-size": fs, "font-weight": 500 });
+		text(g, x + colW - 16, y, length, { fill: theme.inkMuted, "font-size": fs - 0.5, "text-anchor": "end" });
+		if (row < perCol - 1 && k < rows.length - 1)
+			svgEl("line", { x1: x, x2: x + colW - 16, y1: y + rowH / 2, y2: y + rowH / 2, stroke: theme.grid }, g);
+	});
+	return { node: g, height: headH + perCol * rowH };
 }
 
 /**

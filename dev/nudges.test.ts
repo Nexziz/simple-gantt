@@ -374,7 +374,7 @@ t("buffers chain: one after a vacation joins the same bar, overlapping ones too,
 	assert.equal(at("v2").attachedTo, "wu", "a buffer overlapping another buffer joins its task");
 	assert.ok(at("v1").squareRight && at("v2").squareLeft);
 	const c1 = at("v1"), c2 = at("v2");
-	assert.ok(c2.labelX >= c1.labelX + c1.labelW, "overlapping buffers' captions don't write over each other");
+	assert.ok((c1.captionTier ?? 0) !== (c2.captionTier ?? 0) || c2.labelX >= c1.labelX + c1.labelW, "overlapping buffers' captions don't write over each other");
 	// A gap of a few days still chains (on the same row, just not touching).
 	p.items.find((i) => i.id === "bf")!.start = "2027-04-16";
 	const lay2 = computeLayout(p, { pxPerDay: 3, showEmptyLanes: false, measure: (s: string) => s.length * 6 });
@@ -388,36 +388,58 @@ t("buffers chain: one after a vacation joins the same bar, overlapping ones too,
 	assert.ok(!po3.labelInside && (po3.labelX >= bf3.x1 || po3.labelAnchor === "end"), "the long name sits clear of the chain");
 });
 
-t("on paper, a chain's captions never overlap: dates go first, then they shift, all on the page", () => {
+t("on paper, buffer names keep their dates and never overlap: a crowded one goes under the bar", () => {
 	const make = (end: string) => normalizeProject({
 		start: "2027-01-04", end,
 		phases: [{ id: "v", name: "VEX" }],
 		items: [
 			{ id: "t", type: "task", title: "VEX", phase: "v", start: "2027-02-10", end: "2027-03-25" },
+			{ id: "xm", type: "task", buffer: true, title: "Christmas vacation", phase: "v", start: "2027-02-15", end: "2027-02-25" },
 			{ id: "ev", type: "task", buffer: true, title: "Easter vacation", phase: "v", start: "2027-03-26", end: "2027-04-11" },
 			{ id: "bf", type: "task", buffer: true, title: "Buffer", phase: "v", start: "2027-04-12", end: "2027-04-19" },
 			{ id: "dl", type: "deadline", title: "Submission", start: "2027-04-20" },
 		],
 	});
-	const caps = (end: string, ppd: number) => {
-		const lay = computeLayout(make(end), { pxPerDay: ppd, showEmptyLanes: false, measure: (s: string) => s.length * 6, print: true, today });
+	const apart = (a: { captionTier?: number; labelX: number; labelW: number }, b: typeof a) =>
+		(a.captionTier ?? 0) !== (b.captionTier ?? 0) || a.labelX + a.labelW + 4 <= b.labelX || b.labelX + b.labelW + 4 <= a.labelX;
+	const caps = (end: string, ppd: number, captionDates?: boolean) => {
+		const lay = computeLayout(make(end), { pxPerDay: ppd, showEmptyLanes: false, measure: (s: string) => s.length * 6, print: true, today, captionDates });
 		const at = (id: string) => lay.placed.find((x) => x.item.id === id)!;
-		return { lay, ev: at("ev"), bf: at("bf") };
+		return { lay, xm: at("xm"), ev: at("ev"), bf: at("bf"), t: at("t") };
 	};
-	// Plenty of room: both keep their dates and sit over their own stretch of the bar.
-	const roomy = caps("2027-06-30", 8);
-	assert.ok(/·/.test(roomy.ev.label) && /·/.test(roomy.bf.label), "dates kept when there's room");
-	assert.ok(roomy.ev.labelX >= roomy.ev.x0 && roomy.bf.labelX >= roomy.ev.labelX + roomy.ev.labelW + 4);
-	// Tight against the end of the page (the printed case): no overlap, nothing off the page.
+	// Plenty of room: side by side above the bar, each over its own stretch.
+	const roomy = caps("2027-06-30", 14);
+	assert.ok(/·/.test(roomy.ev.label) && /·/.test(roomy.bf.label) && /·/.test(roomy.xm.label), "dates kept");
+	assert.ok(!roomy.ev.captionTier && !roomy.bf.captionTier, "both above when there's room");
+	// Tight against the end of the page (the printed case).
 	for (const [end, ppd] of [["2027-04-24", 6], ["2027-04-24", 4], ["2027-04-22", 3], ["2027-04-20", 2]] as const) {
-		const { lay, ev, bf } = caps(end, ppd);
-		assert.ok(bf.labelX >= ev.labelX + ev.labelW + 4, `captions apart at ${ppd}px/day: "${ev.label}" / "${bf.label}"`);
-		assert.ok(ev.labelX >= 0 && bf.labelX + bf.labelW <= lay.width, `captions on the page at ${ppd}px/day`);
-		assert.equal(ev.labelAnchor, "start");
+		const { lay, xm, ev, bf } = caps(end, ppd);
+		for (const c of [xm, ev, bf]) {
+			assert.ok(/·/.test(c.label), `"${c.label}" keeps its dates at ${ppd}px/day`);
+			assert.ok(c.labelX >= 0 && c.labelX + c.labelW <= lay.width, `"${c.label}" is on the page at ${ppd}px/day`);
+		}
+		assert.ok(apart(ev, bf) && apart(xm, ev) && apart(xm, bf), `names apart at ${ppd}px/day`);
 	}
 	const mid = caps("2027-04-24", 6);
-	assert.equal(mid.ev.label, "Easter vacation", "the long caption drops its dates first");
-	assert.ok(mid.ev.labelX >= mid.ev.x0, "…and stays over its own stretch of the bar");
+	assert.equal(mid.xm.label, "Christmas vacation · 15–25 Feb", "a name with room around it keeps its dates and its place");
+	assert.equal(mid.ev.captionTier ?? 0, 0);
+	assert.equal(mid.bf.captionTier, 1, "the crowded one goes under the bar");
+	assert.ok(mid.ev.labelX >= mid.ev.x0 && mid.bf.labelX >= mid.bf.x0, "each starts over its own stretch");
+	// The row makes room under the bar for it.
+	const plain = caps("2027-06-30", 14);
+	assert.ok(mid.lay.lanes[0].height >= plain.lay.lanes[0].height, "room is made for the line under the bar");
+	// Dates can be switched off for paper.
+	assert.equal(caps("2027-06-30", 8, false).ev.label, "Easter vacation");
+	// And the names can be put under the bar, or kept above it (a second line when crowded).
+	const placed = (captionPlace: "above" | "below") => {
+		const lay = computeLayout(make("2027-04-24"), { pxPerDay: 6, showEmptyLanes: false, measure: (s: string) => s.length * 6, print: true, today, captionPlace });
+		return ["xm", "ev", "bf"].map((id) => lay.placed.find((x) => x.item.id === id)!);
+	};
+	const below = placed("below");
+	assert.ok(below[0].captionTier === 1 && below[1].captionTier === 1 && (below[2].captionTier ?? 0) === 0 && apart(below[1], below[2]), "under the bar, the crowded one above");
+	const above = placed("above");
+	assert.ok(above.every((c) => c.captionTier !== 1) && above.some((c) => c.captionTier === 2), "all above, the crowded one on a second line");
+	assert.ok(apart(above[1], above[2]));
 });
 
 t("buffer patterns: saved only when not the default, read leniently, only on buffers", () => {
@@ -470,6 +492,8 @@ t("print settings: saved in the note, only what differs from the defaults", () =
 	const back = normalizeProject({ ...plain, print: { ...plain.print, paper: "a2", today: "yes" } });
 	assert.deepEqual(back.print, { spacing: "roomy", milestoneTable: false }, "unknown values are dropped");
 	assert.equal(printSettingsOf(back.print).paper, DEFAULT_PRINT.paper);
+	const more = normalizeProject({ ...plain, print: { captionPlace: "below", captionDates: false, bufferTable: false, longArrows: false } });
+	assert.deepEqual(more.print, { captionPlace: "below", captionDates: false, bufferTable: false, longArrows: false }, "the new choices are kept");
 	assert.deepEqual(pageSize({ ...DEFAULT_PRINT, paper: "a4", orientation: "portrait" }), { w: 794, h: 1123, wPt: 595.28, hPt: 841.89 });
 });
 

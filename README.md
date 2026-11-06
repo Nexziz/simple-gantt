@@ -85,7 +85,7 @@ The overview panel shows your next deadline, what's on now and what's coming up.
 ![The overview panel in the sidebar](https://raw.githubusercontent.com/Nexziz/simple-gantt/main/docs/gifs/sidebar.gif)
 
 ### Print it, your way
-**Export → Print / PDF…** opens a print window with a live preview. Pick A4, A3 or Letter, landscape or portrait, how much room there is between the rows and how big the text is, and what to show: a **milestone table** (every milestone earliest first, with how far off it is), task dates, a Today line, arrows, buffer and Plan B names, week dates, the subtitle, and a countdown to the next deadline. Your choices are saved with the timeline. **Save PDF** writes a print-ready PDF and opens it; print it at 100%.
+**Export → Print / PDF…** opens a print window with a live preview. Pick A4, A3 or Letter, landscape or portrait, how much room there is between the rows and how big the text is, and what to show: a **milestone table** (every milestone earliest first, with how far off it is), a **vacations and buffers table** (each one with its pattern, dates and length), task dates, a Today line, arrows (also the long ones across phases, as on the board), buffer and vacation names with their dates (above the bar, below it, or wherever there's room), Plan B names, week dates, the subtitle, and a countdown to the next deadline. Names never lose their dates to make room: when two would collide, one moves under the bar. Your choices are saved with the timeline. **Save PDF** writes a print-ready PDF and opens it; print it at 100%.
 
 The page itself is kept clean: deadlines in red in one row at the top, each with a line through the whole chart; milestones as bold diamonds with their dates; no legend, because the picture explains itself. No label ever runs off the page.
 
@@ -159,7 +159,7 @@ The page itself is kept clean: deadlines in red in one row at the top, each with
 <details open>
 <summary><b>Share &amp; export</b></summary>
 
-- **Print / PDF** with a live preview: A4, A3 or Letter, landscape or portrait, tight to roomy row spacing, three text sizes, and switches for the milestone table, task dates, Today line, arrows, buffer and Plan B names, week dates, subtitle and countdown. Saved per timeline. Long plans continue on more pages, each repeating the dates and deadlines.
+- **Print / PDF** with a live preview: A4, A3 or Letter, landscape or portrait, tight to roomy row spacing, three text sizes, where buffer names go, and switches for the milestone table, the vacations and buffers table, task dates, Today line, arrows (and the long ones across phases), buffer names and their dates, week dates, subtitle and countdown. Saved per timeline. Long plans continue on more pages, each repeating the dates and deadlines.
 - **PNG or SVG** in the same clean, white style. You can include the saved plan for a "planned vs. actual" figure.
 - **Markdown table or CSV** of the whole plan, for an appendix or a spreadsheet.
 - **Reading view:** the note's block renders as a chart preview, and you can copy it into any other note.

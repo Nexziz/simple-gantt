@@ -1,5 +1,5 @@
 import { MONTHS_LONG, MONTHS_SHORT, dayFromYmd, formatDay, monthEnd, toDay, weekday, ymd } from "./dates";
-import { Lane, Layout, MILESTONE_BADGE_PAD, Measure, NOTE_GAP, Placed, computeLayout } from "./layout";
+import { Lane, Layout, MILESTONE_BADGE_PAD, Measure, NOTE_GAP, Placed, captionY, computeLayout } from "./layout";
 import { PRINT_THEME, Theme, inkOnFill } from "./theme";
 import { earliestAfter } from "./links";
 import { BufferPattern, Mood, Project, isDone, isRangeType } from "./types";
@@ -85,6 +85,8 @@ export interface PaintOptions {
 	print?: boolean;
 	/** Leave out the arrows between linked items (a print option). */
 	hideLinks?: boolean;
+	/** Paper: only the arrows between neighbouring phases, not the long ones through other phases. */
+	shortLinksOnly?: boolean;
 	flashId?: string | null;
 	interactive?: boolean;
 	/** Visible horizontal window [from, to] in timeline px; header labels stay inside it while scrolling. */
@@ -492,8 +494,8 @@ function paintItem(parent: Element, p: Placed, layout: Layout, o: PaintOptions, 
 		if (p.attachedTo) svgEl("path", { d, fill: theme.surface, "pointer-events": "none" }, g);
 		svgEl("path", { d, fill: fills.buffer(color, it.pattern), stroke: color, "stroke-opacity": 0.7, class: "sg-mark", "data-part": "body" }, g);
 		if (p.attachedTo) {
-			// Its name sits just above it, like a caption.
-			text(g, p.labelX, top - layout.g.fontSize / 2 - 1.5, p.label, {
+			// Its name sits just above it, like a caption (or under it, when names would collide).
+			text(g, p.labelX, captionY(p, layout.g), p.label, {
 				...labelAttrs, ...halo(theme), "text-anchor": p.labelAnchor, "font-size": layout.g.fontSize - 1.5,
 				fill: theme.inkSecondary, "font-style": "italic",
 			});
@@ -587,8 +589,8 @@ function paintLinks(svg: SVGSVGElement, layout: Layout, o: PaintOptions): Pt | n
 		for (const id of succ.item.after ?? []) {
 			const pred = byId.get(id);
 			if (!pred || pred.item.dropped || succ.item.dropped) continue;
-			// On paper a link that runs through other phases is more clutter than help.
-			if (o.print && Math.abs(layout.lanes.indexOf(pred.lane) - layout.lanes.indexOf(succ.lane)) > 1) continue;
+			// On paper, the long arrows that run down through other phases can be left out (a print option).
+			if (o.print && o.shortLinksOnly && Math.abs(layout.lanes.indexOf(pred.lane) - layout.lanes.indexOf(succ.lane)) > 1) continue;
 			// …and so is one into a buffer that's drawn as part of its task's bar.
 			if (o.print && succ.attachedTo) continue;
 			const pts = routeLink(pred, succ, layout, obstacles, !!o.print);
@@ -645,8 +647,7 @@ function obstaclesOf(layout: Layout, print: boolean): Obstacle[] {
 		out.push({ owner: p, mark: true, box: { x0: p.x0, y0: p.cy - h, x1: p.x1, y1: p.cy + h } });
 		if (!p.label || p.labelInside) continue;
 		const lx0 = p.labelAnchor === "end" ? p.labelX - p.labelW : p.labelX;
-		const above = !!p.attachedTo;
-		const ly = above ? p.cy - p.lane.markH / 2 - fs / 2 - 1.5 : p.cy;
+		const ly = p.attachedTo ? captionY(p, layout.g) : p.cy;
 		out.push({ owner: p, mark: false, box: { x0: lx0, y0: ly - fs * 0.55, x1: lx0 + p.labelW, y1: ly + fs * 0.55 } });
 	}
 	return out;
@@ -831,7 +832,7 @@ function paintDerived(g: SVGGElement, p: Placed, layout: Layout, o: PaintOptions
 		}, g);
 		if (p.attachedTo) {
 			// A dashed extension of its task (drawn under the bar), named just above.
-			text(g, p.labelX, top - layout.g.fontSize / 2 - 1.5, p.label, {
+			text(g, p.labelX, captionY(p, layout.g), p.label, {
 				...labelAttrs, ...halo(theme), "text-anchor": p.labelAnchor, "font-size": layout.g.fontSize - 1.5,
 				fill: theme.inkSecondary, "font-style": "italic",
 			});

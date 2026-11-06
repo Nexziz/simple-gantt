@@ -3,6 +3,7 @@ import { App, notices } from "obsidian";
 import SimpleGanttPlugin from "../src/main";
 import { isOn } from "../src/core/features";
 import { renderPrintPages } from "../src/core/print";
+import { printSettingsOf } from "../src/core/printSettings";
 import { normalizeProject } from "../src/core/serialize";
 
 const log: string[] = [];
@@ -553,6 +554,10 @@ function check(cond: unknown, msg: string) {
 		check(sheets()[0]?.getAttribute("width") === "1587", "choosing A3 changes the page size");
 		await sleep(600);
 		check(/print:\n\s+paper: a3\n\s+milestoneTable: false/.test(await read()), "the print choices are saved in the note");
+		// 0.6.16: every arrow on paper, buffer names with their dates, a table of the vacations and buffers.
+		check(["bufferTable", "longArrows", "captionDates"].every((k) => document.querySelector(`[data-print="${k}"]`)), "the print window has switches for the breaks table, long arrows and buffer dates");
+		check([...document.querySelectorAll(".sg-print .sg-seg button")].some((b) => b.textContent === "Below"), "…and a choice of where buffer names go");
+		await sleep(600);
 		const savePdf = [...document.querySelectorAll(".sg-print-buttons .sg-btn")].find((b) => b.textContent?.includes("Save PDF")) as HTMLButtonElement;
 		savePdf.click();
 		await sleep(1500);
@@ -595,6 +600,14 @@ function check(cond: unknown, msg: string) {
 		markOf(poster.id).dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: tm.left, clientY: tm.top }));
 		check(!document.querySelector(".sg-menu .sg-pattern"), "ordinary tasks don't offer patterns");
 		key("Escape");
+
+		// The printed page: buffer names keep their dates, the vacations-and-buffers table, long arrows like the board.
+		const page = renderPrintPages(proj(), { today: Date.UTC(2027, 0, 1) / 864e5 })[0];
+		const pageText = [...page.querySelectorAll("text")].map((t) => t.textContent ?? "");
+		check(pageText.includes("VACATIONS AND BUFFERS") && pageText.some((t) => /^Easter vacation · \d/.test(t)), "the printed page lists vacations and buffers, and their names keep their dates");
+		const arrowsOn = (opts: Partial<import("../src/core/printSettings").PrintSettings>) =>
+			renderPrintPages(proj(), { settings: { ...printSettingsOf(proj().print), ...opts } })[0].querySelectorAll(".sg-link").length;
+		check(arrowsOn({ longArrows: true }) > arrowsOn({ longArrows: false }), `long arrows across phases print like on the board (${arrowsOn({ longArrows: true })} vs ${arrowsOn({ longArrows: false })})`);
 
 		log.push(`notices: ${JSON.stringify(notices)}`);
 		(window as any).__note = await app.vault.read(file);
