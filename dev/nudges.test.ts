@@ -573,5 +573,56 @@ t("a phase's length is its working time: the days its tasks run, without its vac
 	assert.equal(DEFAULT_PRINT.countdown || DEFAULT_PRINT.milestoneCountdown, false, "nothing that goes out of date, by default");
 });
 
+t("items put on a row by hand stay there, even on top of each other; the rest fill in around them", () => {
+	const measure = (s: string) => s.length * 6;
+	const p = normalizeProject({
+		start: "2027-01-01", end: "2027-04-30",
+		phases: [{ id: "a", name: "A" }],
+		items: [
+			{ id: "t1", type: "task", title: "One", phase: "a", start: "2027-01-10", end: "2027-02-10" },
+			{ id: "t2", type: "task", title: "Two", phase: "a", start: "2027-01-20", end: "2027-02-20", row: 0 },
+			{ id: "t3", type: "task", title: "Three", phase: "a", start: "2027-03-01", end: "2027-03-20", row: 3 },
+		],
+	});
+	const lay = computeLayout(p, { pxPerDay: 3, showEmptyLanes: false, measure });
+	const at = (id: string) => lay.placed.find((x) => x.item.id === id)!;
+	assert.equal(at("t2").row, 0, "kept on the row it was put on");
+	assert.equal(at("t1").row, 1, "the automatic one goes around it");
+	assert.equal(at("t3").row, 3, "even a row further down");
+	assert.equal(lay.lanes[0].rows, 4);
+	// Two on the same row, on top of each other: allowed.
+	p.items.find((i) => i.id === "t1")!.row = 0;
+	const lay2 = computeLayout(p, { pxPerDay: 3, showEmptyLanes: false, measure });
+	assert.equal(lay2.placed.find((x) => x.item.id === "t1")!.cy, lay2.placed.find((x) => x.item.id === "t2")!.cy, "they overlap");
+	// The row under a point: the nearest one, or a new one under the last.
+	const lane = lay2.lanes[0];
+	assert.equal(lay2.rowAt(lane, lane.rowTops[3] + 2), 3);
+	assert.equal(lay2.rowAt(lane, lane.rowTops[0] - 30), 0);
+	assert.equal(lay2.rowAt(lane, lane.rowTops[3] + lane.pitch * 2), 4);
+	// Saved in the note, and read back (nonsense is ignored).
+	const back = normalizeProject(toPlain(p));
+	assert.equal(back.items.find((i) => i.id === "t3")!.row, 3);
+	assert.equal(normalizeProject({ ...toPlain(p), items: [{ id: "x", type: "task", title: "X", start: "2027-01-01", end: "2027-01-02", row: -2 }] }).items[0].row, undefined);
+});
+
+t("a buffer moved to another row by hand leaves its task; one on the task's row stays joined", () => {
+	const measure = (s: string) => s.length * 6;
+	const p = normalizeProject({
+		start: "2027-01-01", end: "2027-04-30",
+		phases: [{ id: "a", name: "A" }],
+		items: [
+			{ id: "t", type: "task", title: "Write up", phase: "a", start: "2027-01-10", end: "2027-03-10", row: 0 },
+			{ id: "b", type: "task", buffer: true, title: "Vacation", phase: "a", start: "2027-02-01", end: "2027-02-14", row: 0 },
+		],
+	});
+	const lay = computeLayout(p, { pxPerDay: 3, showEmptyLanes: false, measure });
+	assert.equal(lay.placed.find((x) => x.item.id === "b")!.attachedTo, "t");
+	p.items.find((i) => i.id === "b")!.row = 2;
+	const lay2 = computeLayout(p, { pxPerDay: 3, showEmptyLanes: false, measure });
+	const b = lay2.placed.find((x) => x.item.id === "b")!;
+	assert.equal(b.attachedTo, undefined);
+	assert.equal(b.row, 2);
+});
+
 console.log(failed ? `\n${failed} failed` : `\nall nudge/journal/link/feature tests passed`);
 if (failed) process.exit(1);

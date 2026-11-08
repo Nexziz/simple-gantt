@@ -166,6 +166,8 @@ export function normalizeProject(raw: unknown, fallbackTitle = "Untitled project
 			if (after.length) item.after = after;
 		}
 		if (type === "task" && (o.buffer === true || String(o.buffer) === "true")) item.buffer = true;
+		const row = Number(o.row);
+		if (o.row !== undefined && o.row !== null && Number.isInteger(row) && row >= 0 && row < 100) item.row = row;
 		const pattern = asText(o.pattern)?.toLowerCase().replace(/[^a-z]/g, "");
 		if (item.buffer && pattern && pattern !== "diagonal" && (BUFFER_PATTERNS as readonly string[]).includes(pattern)) item.pattern = pattern as BufferPattern;
 		project.items.push(item);
@@ -246,6 +248,7 @@ export function toPlain(project: Project): Record<string, unknown> {
 		if (i.dropped) o.dropped = true;
 		if (i.buffer) o.buffer = true;
 		if (i.buffer && i.pattern && i.pattern !== "diagonal") o.pattern = i.pattern;
+		if (i.row !== undefined) o.row = i.row;
 		if (i.after?.length) o.after = [...i.after];
 		o.id = i.id;
 		return o;

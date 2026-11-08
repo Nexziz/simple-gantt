@@ -62,6 +62,8 @@ export interface GanttItem {
 	buffer?: boolean;
 	/** Buffers only: the fill, so a vacation and a buffer can be told apart. Diagonal stripes when unset. */
 	pattern?: BufferPattern;
+	/** The row of its phase it was put on by hand (0 = top); kept even on top of something else. Unset: placed automatically. */
+	row?: number;
 }
 
 /** Fills a buffer can have. The first is the default and isn't saved. */

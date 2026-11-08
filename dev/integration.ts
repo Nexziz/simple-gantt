@@ -634,6 +634,50 @@ function check(cond: unknown, msg: string) {
 		check(printedWords("auto").includes("in 4.5 months") && printedWords("days").includes("in 139 days") && printedWords("days").includes("17 days"), "…or in days, or weeks and months");
 		check(arrowsOn({ longArrows: true }) > arrowsOn({ longArrows: false }), `long arrows across phases print like on the board (${arrowsOn({ longArrows: true })} vs ${arrowsOn({ longArrows: false })})`);
 
+		// ── 0.6.20: put things anywhere (even on top of each other); Shift keeps an item in its own phase ──
+		key("Escape");
+		type("Alpha 1 Feb – 20 Feb #free");
+		type("Beta 1 Feb – 20 Feb #free");
+		await sleep(50);
+		const alpha = proj().items.find((i: any) => i.title === "Alpha");
+		const beta = proj().items.find((i: any) => i.title === "Beta");
+		const placedAt = (id: string) => board["layout"].placed.find((x: any) => x.kind === "item" && x.item.id === id);
+		check(placedAt(beta.id).row === 1 && placedAt(alpha.id).row === 0, "two at the same time go on two rows automatically");
+		const drag = (id: string, toY: number, extra: PointerEventInit = {}) => {
+			const r = markOf(id).getBoundingClientRect();
+			const x = r.left + r.width / 2, y = r.top + r.height / 2;
+			pe("pointerdown", markOf(id), x, y, extra);
+			pe("pointermove", bodyEl, x, y + (toY - y) / 2, extra);
+			pe("pointermove", bodyEl, x, toY, extra);
+			pe("pointerup", bodyEl, x, toY, extra);
+		};
+		const centreY = (id: string) => { const r = markOf(id).getBoundingClientRect(); return r.top + r.height / 2; };
+		drag(beta.id, centreY(alpha.id));
+		check(beta.row === 0 && placedAt(beta.id).cy === placedAt(alpha.id).cy, "dragging one onto another's row puts it right on top of it");
+		check(alpha.row === 0 && placedAt(alpha.id).row === 0, "…and the other one stays where it was");
+		const freePhase = beta.phase;
+		const otherLane = board["layout"].lanes.find((l: any) => l.kind === "phase" && l.key !== freePhase && !l.collapsed);
+		const otherY = () => {
+			const lane = board["layout"].lanes.find((l: any) => l.key === otherLane.key);
+			const r = bodyEl.querySelector("svg")!.getBoundingClientRect();
+			return r.top + lane.rowTops[0] + lane.markH / 2;
+		};
+		drag(beta.id, otherY(), { shiftKey: true });
+		check(beta.phase === freePhase, "with Shift it stays in its own phase");
+		drag(beta.id, otherY());
+		check(beta.phase === otherLane.key, "without Shift it can go into another phase");
+		await sleep(600);
+		check(new RegExp(`title: Beta[\\s\\S]*?row: \\d`).test(await read()), "where it was put is saved in the note");
+		// Undo putting things by hand: back to automatic.
+		const ar = markOf(alpha.id).getBoundingClientRect();
+		const laneHitFree = document.querySelector(`.sg-lane-hit[data-lane="${freePhase}"]`)!;
+		laneHitFree.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: ar.right + 40, clientY: ar.top + 3 }));
+		const arrange = [...document.querySelectorAll(".sg-menu .sg-menu-item")].find((b) => b.textContent?.includes("Arrange rows automatically")) as HTMLButtonElement;
+		check(arrange, "a row with things put by hand offers to arrange it automatically again");
+		arrange?.click();
+		check(alpha.row === undefined, "…which forgets where they were put");
+		key("Escape");
+
 		log.push(`notices: ${JSON.stringify(notices)}`);
 		(window as any).__note = await app.vault.read(file);
 	} catch (e) {

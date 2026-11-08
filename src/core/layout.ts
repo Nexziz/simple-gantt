@@ -118,6 +118,8 @@ export interface Lane {
 	rows: number;
 	/** Y of the top of the first row's mark. */
 	contentTop: number;
+	/** Y of the top of each row's mark (rows can have room for buffer names, so they aren't evenly spaced). */
+	rowTops: number[];
 	pitch: number;
 	markH: number;
 	collapsed?: boolean;
@@ -189,6 +191,8 @@ export interface Layout {
 	placed: Placed[];
 	xOf(day: number): number;
 	dayAt(x: number): number;
+	/** The row of a lane at a height: the nearest one, or a new row under the last. */
+	rowAt(lane: Lane, y: number): number;
 }
 
 export interface LayoutOptions {
@@ -245,19 +249,6 @@ export function itemDays(item: GanttItem): [number, number] {
 	const s = toDay(item.start);
 	const e = item.end ? Math.max(s, toDay(item.end)) : s;
 	return [s, e];
-}
-
-/** Greedy interval packing: returns the row index for each [from, to] in input order. */
-function pack(intervals: [number, number][], gap: number): number[] {
-	const rowEnds: number[] = [];
-	return intervals.map(([from, to]) => {
-		let row = rowEnds.findIndex((end) => end + gap <= from);
-		if (row === -1) {
-			row = rowEnds.length;
-			rowEnds.push(to);
-		} else rowEnds[row] = to;
-		return row;
-	});
 }
 
 export function computeLayout(project: Project, opts: LayoutOptions): Layout {
@@ -426,6 +417,11 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 		// A Plan B that runs past the end of its task is drawn the same way: a dashed extension of the bar.
 		const hostOf = new Map<number, number>();
 		const isTask = (q: (typeof pre)[number]) => q.mark.kind === "item" && q.item.type === "task" && !q.item.dropped;
+		// A row chosen by hand (the item was dragged there).
+		const fixedRow = (i: number): number | undefined => {
+			const r = pre[i].mark.kind === "item" ? pre[i].item.row : undefined;
+			return !flat && !strip && r !== undefined && Number.isInteger(r) && r >= 0 ? r : undefined;
+		};
 		if (!strip && !flat) {
 			pre.forEach((b, i) => {
 				if (b.mark.kind !== "ghost") return;
@@ -442,6 +438,9 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 				let best = -1, bestScore = Infinity;
 				pre.forEach((t, j) => {
 					if (!isTask(t) || t.item.buffer) return;
+					// Put on a different row by hand: it was moved away from this task on purpose.
+					const br = fixedRow(i), tr = fixedRow(j);
+					if (br !== undefined && tr !== undefined && br !== tr) return;
 					const end = chainEnd.get(j) ?? t.e;
 					const overlaps = b.s <= end && b.e >= t.s;
 					const follows = b.s > end && b.s - end <= 7;
@@ -526,10 +525,27 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 		}
 
 		// The journal lane is a single row of small markers; everything else is packed (buffers ride with their task).
+		// Items put on a row by hand stay there, even on top of something else; the rest fill in around them.
 		const packed = pre.map((_, i) => i).filter((i) => !hostOf.has(i));
-		const packedRows = flat ? packed.map(() => 0) : pack(packed.map((i) => [pre[i].from, pre[i].to]), g.packGap);
 		const rows: number[] = [];
-		packed.forEach((i, k) => (rows[i] = packedRows[k]));
+		if (flat) packed.forEach((i) => (rows[i] = 0));
+		else {
+			const taken: [number, number][][] = [];
+			const free = (r: number, from: number, to: number) => (taken[r] ?? []).every(([a, b]) => to + g.packGap <= a || from >= b + g.packGap);
+			for (const i of packed) {
+				const r = fixedRow(i);
+				if (r === undefined) continue;
+				rows[i] = r;
+				(taken[r] ??= []).push([pre[i].from, pre[i].to]);
+			}
+			for (const i of packed) {
+				if (rows[i] !== undefined) continue;
+				let r = 0;
+				while (!free(r, pre[i].from, pre[i].to)) r++;
+				rows[i] = r;
+				(taken[r] ??= []).push([pre[i].from, pre[i].to]);
+			}
+		}
 		for (const [i, j] of hostOf) rows[i] = rows[j];
 		const rowCount = Math.max(1, ...rows.map((r) => r + 1));
 		// Rows with a buffer's name above (or under) them get a little room for it.
@@ -564,6 +580,7 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 			height,
 			rows: rowCount,
 			contentTop,
+			rowTops: rowTop.map((t) => contentTop + t),
 			pitch,
 			markH,
 		};
@@ -619,7 +636,17 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 		y += height;
 	}
 
-	return { g, on, viewStart, viewEnd, pxPerDay: ppd, width, headerH, bodyH: y, showWeeks, lanes, placed, xOf, dayAt };
+	const rowAt = (lane: Lane, y: number): number => {
+		const centre = (r: number) => lane.rowTops[r] + lane.markH / 2;
+		const last = lane.rowTops.length - 1;
+		if (y > centre(last) + lane.pitch * 0.6) return last + 1;
+		let best = 0;
+		lane.rowTops.forEach((_, r) => {
+			if (Math.abs(y - centre(r)) < Math.abs(y - centre(best))) best = r;
+		});
+		return best;
+	};
+	return { g, on, viewStart, viewEnd, pxPerDay: ppd, width, headerH, bodyH: y, showWeeks, lanes, placed, xOf, dayAt, rowAt };
 }
 
 /** A collapsed phase: one bar over its whole span (with overall progress) plus its milestones. */

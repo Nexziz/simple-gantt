@@ -78,6 +78,9 @@ interface Drag {
 	base?: Set<string>;
 	/** Panning: the scroll position when the drag started (startX/startY are client coordinates). */
 	scroll?: { left: number; top: number };
+	/** Moving one item: where everything was (lane and row) when the drag started, and the buffers joined to it. */
+	rowsAtStart?: Map<string, { lane: string; row: number }>;
+	carried?: string[];
 }
 
 /** Move an item by whole days. */
@@ -779,7 +782,10 @@ export class GanttBoard {
 				.map((it) => ({ it, to: p.phases[p.phases.findIndex((ph) => ph.id === it.phase) + dir] }));
 			// Move as a block: only if every one of them has a phase to go to.
 			if (!moves.length || moves.some((m) => !m.to)) return;
-			this.mutate(() => moves.forEach((m) => (m.it.phase = m.to.id)));
+			this.mutate(() => moves.forEach((m) => {
+				m.it.phase = m.to.id;
+				delete m.it.row;
+			}));
 		}
 	}
 
@@ -940,6 +946,15 @@ export class GanttBoard {
 					if (this.on("events")) this.menuItem(menu, [icon("event", 14), span("Add a key date here")], () => add({ type: "event", title: "New key date", start: fromDay(day) }));
 				} else if (lane.kind === "locations") {
 					this.menuItem(menu, [icon("location", 14), span("Add a place here")], () => add({ type: "location", title: "New location", start: fromDay(day), end: fromDay(day + 6) }));
+				}
+				// Undo placing things by hand in this row: everything goes back to being arranged automatically.
+				const byHand = this.layout?.placed.filter((x) => x.kind === "item" && x.lane === lane && x.item.row !== undefined).map((x) => x.item) ?? [];
+				if (byHand.length) {
+					h("div", { cls: "sg-menu-sep" }, menu);
+					this.menuItem(menu, [icon("undo", 14), span("Arrange rows automatically")], () => {
+						this.mutate(() => byHand.forEach((it) => delete it.row));
+						this.host.notify("Arranged automatically. Ctrl+Z to undo.");
+					});
 				}
 			});
 		}
@@ -1443,6 +1458,11 @@ export class GanttBoard {
 					pointerId: e.pointerId, kind, startX: x, startY: y, moved: false, item, additive, group,
 					orig: { start: item.start, end: item.end, phase: item.phase },
 				};
+				if (kind === "move" && !group) {
+					const placed = this.layout.placed.filter((p) => p.kind === "item");
+					this.drag.rowsAtStart = new Map(placed.map((p) => [p.item.id, { lane: p.lane.key, row: p.row }]));
+					this.drag.carried = placed.filter((p) => p.attachedTo === item.id).map((p) => p.item.id);
+				}
 				body.setPointerCapture(e.pointerId);
 				e.preventDefault();
 			} else if (target.classList.contains("sg-lane-hit") && e.pointerType !== "touch") {
@@ -1533,12 +1553,12 @@ export class GanttBoard {
 				return;
 			}
 			let rippled = 0;
+			let placedIn: string | null = null;
 			if (d.kind === "move") {
 				s = s0 + delta;
 				en = e0 + delta;
-				const lane = this.laneAt(y);
-				if ((item.type === "task" || item.type === "milestone") && lane?.kind === "phase") item.phase = lane.key;
-				if (e.shiftKey) rippled = rippleShift(this.project, item, delta) - 1;
+				placedIn = this.placeByHand(d, item, y, e.shiftKey);
+				if (e.altKey) rippled = rippleShift(this.project, item, delta) - 1;
 			} else if (d.kind === "start") s = Math.min(e0, s0 + delta);
 			else en = Math.max(s0, e0 + delta);
 			item.start = fromDay(s);
@@ -1547,13 +1567,17 @@ export class GanttBoard {
 			this.render();
 			this.paintDragGuides(item);
 			const label = isRangeType(item.type) ? `${formatRange(s, en)} · ${formatDuration(en - s + 1)}` : formatDay(s);
-			const extra = d.kind !== "move" ? null : e.shiftKey
+			const phaseName = (key: string) => this.project?.phases.find((ph) => ph.id === key)?.name ?? "its row";
+			const extra = d.kind !== "move" ? null : e.altKey
 				? h("span", { cls: "sg-tt-ripple", kids: [icon("push", 12), `Moving ${rippled} later item${rippled === 1 ? "" : "s"} too`] })
-				: span("Hold Shift to move everything after it", "sg-tt-hint");
-			const pushedNote = pushed && !e.shiftKey
+				: e.shiftKey
+					? span(`Staying in ${phaseName(d.rowsAtStart?.get(item.id)?.lane ?? "")}`, "sg-tt-hint")
+					: span("Shift: stay in this phase · Alt: move everything after it", "sg-tt-hint");
+			const where = placedIn ? span(`Put here by hand${placedIn !== d.rowsAtStart?.get(item.id)?.lane ? ` · in ${phaseName(placedIn)}` : ""}`, "sg-tt-hint") : null;
+			const pushedNote = pushed && !e.altKey
 				? h("span", { cls: "sg-tt-ripple", kids: [icon("branch", 12), `Pushes ${pushed} linked item${pushed === 1 ? "" : "s"}`] })
 				: null;
-			this.showTooltip(e, [h("b", { text: item.title }), span(label), pushedNote, extra]);
+			this.showTooltip(e, [h("b", { text: item.title }), span(label), where, pushedNote, extra]);
 		});
 
 		const finish = (e: PointerEvent) => {
@@ -1834,7 +1858,11 @@ export class GanttBoard {
 			const i = p.phases.findIndex((ph) => ph.id === item.phase);
 			const next = p.phases[i + (key === "ArrowUp" ? -1 : 1)];
 			if (!next) return;
-			this.mutate(() => (item.phase = next.id), this.panelMode === "item");
+			// In its new phase it's placed automatically.
+			this.mutate(() => {
+				item.phase = next.id;
+				delete item.row;
+			}, this.panelMode === "item");
 			this.activePhase = next.id;
 		}
 		this.revealItem(item.id);
@@ -1898,8 +1926,10 @@ export class GanttBoard {
 				["Double-click", "an item to rename it · F2"],
 				["Right-click", "anything for its menu"],
 				["Ctrl + D", "duplicate the selection"],
-				["Drag", "a bar to move it, its edges to resize"],
-				["Shift + drag", "moves everything after it too"],
+				["Drag", "a bar anywhere: another phase, another row, on top of something"],
+				["Shift + drag", "stays in its own phase"],
+				["Alt + drag", "moves everything after it too"],
+				["Drag its edges", "to resize"],
 				["← →", "1 day · Shift: 1 week · Alt: resize"],
 				["↑ ↓", "move to the phase above / below"],
 			]);
@@ -2658,7 +2688,7 @@ export class GanttBoard {
 			h("span", { text: "Only this phase" }, only);
 			cb.addEventListener("change", () => (samePhase = cb.checked));
 		}
-		h("div", { cls: "sg-hint", text: "Tip: hold Shift while dragging a bar to do the same thing by hand." }, sec);
+		h("div", { cls: "sg-hint", text: "Tip: hold Alt while dragging a bar to do the same thing by hand." }, sec);
 	}
 
 	// ─── Journal ───────────────────────────────────────────────────────────
@@ -3024,6 +3054,40 @@ export class GanttBoard {
 	}
 
 	/** Reset every item's dates and phase to a snapshot (used while dragging). */
+	/**
+	 * Moving an item puts it wherever it's dropped: on any row of any phase, even on top of something else
+	 * (with Shift, only within its own phase). Nothing else jumps out of the way: the rows of the phases it
+	 * leaves and joins stay as they were. Returns the lane it was put in by hand, or null for a change of dates only.
+	 */
+	private placeByHand(d: Drag, item: GanttItem, y: number, stay: boolean): string | null {
+		const start = d.rowsAtStart?.get(item.id);
+		if (!start || !this.layout) return null;
+		const own = this.layout.lanes.find((l) => l.key === start.lane);
+		if (!own) return null;
+		let lane = stay ? own : (this.laneAt(y) ?? own);
+		// Tasks and milestones can go to another phase; deadlines, key dates and places keep their own row.
+		const canChangePhase = item.type === "task" || item.type === "milestone";
+		if (lane !== own && !(canChangePhase && lane.kind === "phase" && !lane.collapsed)) lane = own;
+		if (lane.collapsed) return null;
+		const row = this.layout.rowAt(lane, y);
+		if (lane.key === start.lane && row === start.row) return null;
+		for (const [id, pos] of d.rowsAtStart!) {
+			if (pos.lane !== start.lane && pos.lane !== lane.key) continue;
+			const other = this.findItem(id);
+			if (other && other !== item) other.row = pos.row;
+		}
+		item.row = row;
+		if (lane.key !== start.lane) item.phase = lane.key;
+		// Its vacations and buffers come along.
+		for (const id of d.carried ?? []) {
+			const b = this.findItem(id);
+			if (!b) continue;
+			b.row = row;
+			if (lane.key !== start.lane) b.phase = lane.key;
+		}
+		return lane.key;
+	}
+
 	private restoreFrom(snapshot: Project) {
 		if (!this.project) return;
 		const byId = new Map(snapshot.items.map((i) => [i.id, i]));
@@ -3033,6 +3097,8 @@ export class GanttBoard {
 			it.start = o.start;
 			it.end = o.end;
 			it.phase = o.phase;
+			if (o.row === undefined) delete it.row;
+			else it.row = o.row;
 			if (o.planB && it.planB) {
 				it.planB.by = o.planB.by;
 				it.planB.start = o.planB.start;

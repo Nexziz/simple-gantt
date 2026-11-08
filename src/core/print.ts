@@ -322,7 +322,7 @@ function sliceLayout(layout: Layout, lanes: Lane[]): Layout {
 	const map = new Map<Lane, Lane>();
 	let y = 0;
 	for (const l of lanes) {
-		map.set(l, { ...l, y, contentTop: l.contentTop - l.y + y });
+		map.set(l, { ...l, y, contentTop: l.contentTop - l.y + y, rowTops: l.rowTops.map((t) => t - l.y + y) });
 		y += l.height;
 	}
 	const placed = layout.placed

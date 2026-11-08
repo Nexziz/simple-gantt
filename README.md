@@ -50,7 +50,7 @@ The live preview shows exactly what you'll get before you press <kbd>Enter</kbd>
 ![Quick add](https://raw.githubusercontent.com/Nexziz/simple-gantt/main/docs/gifs/quick-add.gif)
 
 ### Drag to move, resize and push
-While you drag, guides show the new dates. Hold <kbd>Shift</kbd> to move everything after it too.
+While you drag, guides show the new dates. Drop a bar anywhere: on another row, in another phase, even on top of something else, and it stays where you put it (nothing else jumps out of the way). Hold <kbd>Shift</kbd> to keep it in its own phase, or <kbd>Alt</kbd> to move everything after it too. Right-click a row and choose **Arrange rows automatically** to go back to automatic placement.
 
 ![Dragging bars](https://raw.githubusercontent.com/Nexziz/simple-gantt/main/docs/gifs/drag.gif)
 
@@ -129,7 +129,7 @@ The page itself is kept clean: deadlines in red in one row at the top, each with
 <summary><b>Move &amp; connect</b></summary>
 
 - **Move around like on a Canvas:** drag empty space (or use the middle mouse button) to scroll the chart, and Ctrl/Cmd + scroll to zoom. The tools in the chart's corner switch what a drag on empty space does: move around (<kbd>H</kbd>, the default), select (<kbd>V</kbd>) or draw tasks (<kbd>D</kbd>).
-- **Drag** bars to move them, drag their edges to resize, or drag a task into another phase. This works with every tool. Hold <kbd>Shift</kbd> to move everything after it too.
+- **Drag** bars anywhere: another row, another phase, on top of other items; they stay where you drop them. Drag their edges to resize. This works with every tool. Hold <kbd>Shift</kbd> to stay in the same phase, <kbd>Alt</kbd> to move everything after it too.
 - **Select several:** use the select tool (<kbd>V</kbd>), <kbd>Shift</kbd>-drag a box on empty space, <kbd>Shift</kbd>/<kbd>Ctrl</kbd>-click, or press <kbd>Ctrl</kbd>+<kbd>A</kbd>. A small bar moves the selection by a week, links it in date order, ticks it off, duplicates or deletes it.
 - **Links** keep the order: when something slips, everything linked after it moves too. Each arrow takes the simplest clear path: straight down when the next step starts under the previous one, otherwise out of the side and down onto it, avoiding other bars and labels where it can. If a deadline would be missed, the arrow turns red and you get a warning.
 - **Detach a link** by clicking its line, then **×** or <kbd>Delete</kbd>.
@@ -214,6 +214,7 @@ Type a title and a date; everything else is optional.
 | **Double-click** an empty row | Add a milestone or key date |
 | **Double-click** an item · <kbd>F2</kbd> | Rename it in place |
 | **Right-click** | The menu for an item, a link or a row |
+| Drag a bar · <kbd>Shift</kbd> + drag · <kbd>Alt</kbd> + drag | Put it anywhere · keep it in its phase · move everything after it too |
 | <kbd>Shift</kbd> + drag empty space | Draw a selection box (with any tool) |
 | <kbd>Shift</kbd>/<kbd>Ctrl</kbd> + click · <kbd>Ctrl</kbd>+<kbd>A</kbd> | Add to the selection · select everything |
 | <kbd>←</kbd> <kbd>→</kbd> | Move by a day (<kbd>Shift</kbd>: a week; <kbd>Alt</kbd>: resize) |
