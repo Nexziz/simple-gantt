@@ -557,6 +557,8 @@ function check(cond: unknown, msg: string) {
 		// 0.6.16: every arrow on paper, buffer names with their dates, a table of the vacations and buffers.
 		check(["bufferTable", "longArrows", "captionDates"].every((k) => document.querySelector(`[data-print="${k}"]`)), "the print window has switches for the breaks table, long arrows and buffer dates");
 		check([...document.querySelectorAll(".sg-print .sg-seg button")].some((b) => b.textContent === "Below"), "…and a choice of where buffer names go");
+		const optionList = document.querySelector(".sg-print .sg-features") as HTMLElement;
+		check(optionList.scrollHeight <= optionList.clientHeight + 1, `no print option is cut off; the panel scrolls instead (${optionList.scrollHeight - optionList.clientHeight}px hidden)`);
 		check([...document.querySelectorAll(".sg-print .sg-seg button")].some((b) => b.textContent === "Weeks" && b.classList.contains("is-active")), "…and of counting time in weeks (the default)");
 		await sleep(600);
 		const savePdf = [...document.querySelectorAll(".sg-print-buttons .sg-btn")].find((b) => b.textContent?.includes("Save PDF")) as HTMLButtonElement;

@@ -1009,7 +1009,8 @@
 .sg-preset span { font-size: 11.5px; line-height: 1.35; color: var(--text-muted); white-space: normal; }
 .sg-preset:hover { border-color: var(--background-modifier-border-hover); }
 .sg-preset.is-active { border-color: var(--interactive-accent); box-shadow: 0 0 0 1px var(--interactive-accent); }
-.sg-features { display: flex; flex-direction: column; border: 1px solid var(--background-modifier-border); border-radius: 12px; overflow: hidden; }
+/* flex: none, so in a short window the list keeps its full height and the panel around it scrolls (instead of the list being squeezed and cut off). */
+.sg-features { flex: none; display: flex; flex-direction: column; border: 1px solid var(--background-modifier-border); border-radius: 12px; overflow: hidden; }
 .sg-feature { display: flex; align-items: center; gap: 10px; padding: 9px 12px; cursor: pointer; }
 .sg-feature + .sg-feature { border-top: 1px solid var(--background-modifier-border); }
 .sg-feature:hover { background: var(--background-modifier-hover); }
@@ -1413,7 +1414,24 @@
 	min-height: 0;
 	border-right: 1px solid var(--background-modifier-border);
 }
-.sg-root .sg-print-controls { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding: 4px 16px 16px; }
+.sg-root .sg-print-controls {
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	padding: 4px 16px 16px;
+	/* Soft shadows at the top and bottom edges while there's more to scroll to. */
+	background:
+		linear-gradient(var(--background-primary) 30%, transparent) top / 100% 28px no-repeat local,
+		linear-gradient(transparent, var(--background-primary) 70%) bottom / 100% 28px no-repeat local,
+		radial-gradient(farthest-side at 50% 0, rgba(0, 0, 0, 0.22), transparent) top / 100% 12px no-repeat scroll,
+		radial-gradient(farthest-side at 50% 100%, rgba(0, 0, 0, 0.22), transparent) bottom / 100% 12px no-repeat scroll;
+	background-color: var(--background-primary);
+}
+.sg-root .sg-print-controls > * { flex: none; }
 .sg-root .sg-print-controls .sg-section-title { margin-top: 4px; }
 .sg-root .sg-print-controls .sg-feature.is-nested { margin-left: 14px; }
 .sg-root .sg-print-controls .sg-feature.is-disabled { opacity: 0.45; }
