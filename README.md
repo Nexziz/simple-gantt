@@ -170,6 +170,8 @@ The page itself is kept clean: deadlines in red in one row at the top, each with
 
 - **Put Simple Gantt where you like:** open the **overview panel** from Settings → Simple Gantt (left or right sidebar) or with the command *Show overview in the sidebar*, then drag its icon onto any tab group. You can hide the ribbon button there too.
 - **Use only what you need:** under project settings → **Features**, switch Links, Progress, Reminders, Key dates, Locations, Buffer time, Plan B, Journal and Celebrations on or off, or pick **Essentials** or **Everything**. Switching something off only hides it; your data stays.
+- **Your date format:** Settings → Simple Gantt → **Date format**: day first (24/11/2026, the default), month first (11/24/2026) or year first (2026-11-24). Date fields show and read dates that way (with a calendar button to pick one), and so does the quick-add bar for dates like 3/7/2027.
+- **Day names:** zoom in to the month view and each day shows its weekday letter (M T W T F S S) above its date.
 - **Comfortable or Compact** spacing.
 - Follows your Obsidian theme (light and dark), and works on mobile.
 </details>
@@ -282,6 +284,7 @@ baseline:
 ````
 
 - **Hand edits:** you can edit the YAML yourself; the board reloads.
+- **Deleting a timeline:** click the timeline's name at the top → **Delete this timeline…** (also at the bottom of its settings, and the command *Delete the open timeline*). After you confirm, its note goes to Obsidian's trash, so you can still restore it.
 - **Embedding:** copy the block into any other note to show the chart there.
 - **Privacy:** everything stays in your vault. The plugin makes no network requests.
 

@@ -1,4 +1,4 @@
-import { MONTHS_LONG, formatDay, formatDuration, formatRange, fromDay, toDay, ymd } from "../core/dates";
+import { DateOrder, MONTHS_LONG, datePlaceholder, formatDay, formatDuration, formatNumericDate, formatRange, fromDay, parseTypedDate, toDay, ymd } from "../core/dates";
 import { PROMPTS, REVIEW_PROMPTS, prompt, slotStates } from "../core/journal";
 import { Nudge, computeNudges, nextDeadline, overallProgress, rippleShift } from "../core/nudges";
 import { FEATURES, Feature, PRESETS, isOn, setFeature } from "../core/features";
@@ -43,6 +43,10 @@ export interface BoardHost {
 	notify(message: string): void;
 	openNote?(link: string): void;
 	suggestNotes?(query: string): string[];
+	/** How dates are written in date fields and read when typed (default: day first, 24/11/2026). */
+	dateOrder?(): DateOrder;
+	/** Move the open timeline's note to the trash and open another one. */
+	deleteProject?(): Promise<void> | void;
 }
 
 type Zoom = "year" | "quarter" | "month" | "custom";
@@ -254,6 +258,11 @@ export class GanttBoard {
 
 	getProject(): Project | null {
 		return this.project;
+	}
+
+	/** Redraw the open panel, e.g. after the date format setting changed. */
+	refreshDates() {
+		if (this.panelMode) this.refreshPanel();
 	}
 
 	refreshTheme() {
@@ -1292,7 +1301,7 @@ export class GanttBoard {
 
 	private parseQuick(): ParseResult | null {
 		if (!this.project) return null;
-		const r = parseQuickAdd(this.quickInput.value, { project: this.project, defaultType: this.quickType, today: this.host.today() });
+		const r = parseQuickAdd(this.quickInput.value, { project: this.project, defaultType: this.quickType, today: this.host.today(), dateOrder: this.host.dateOrder?.() });
 		if (r && !this.typeOn(r.type)) {
 			r.type = "task";
 			if (!r.end) r.end = r.start;
@@ -2460,6 +2469,11 @@ export class GanttBoard {
 				["> Good meeting today", "journal note"],
 			].map(([code, what]) => h("div", { kids: [h("code", { text: code }), span(what)] })),
 		}, form);
+
+		if (this.host.deleteProject) {
+			const del = h("button", { cls: "sg-btn sg-delete-timeline", kids: [icon("trash", 14), span("Delete this timeline…")] }, form);
+			del.addEventListener("click", () => this.confirmDelete());
+		}
 	}
 
 	// ─── Done & "how did it go?" ───────────────────────────────────────────
@@ -2543,7 +2557,7 @@ export class GanttBoard {
 		this.editor(ta, () => (review.text = ta.value.trim() || undefined));
 		const row = h("div", { cls: "sg-review-row" }, card);
 		h("span", { cls: "sg-label", text: "Finished on" }, row);
-		const date = h("input", { cls: "sg-input sg-input-sm", attrs: { type: "date" } }, row);
+		const date = this.dateInput(row, "sg-input sg-input-sm", "Finished on");
 		date.value = item.doneOn ?? this.host.today();
 		this.editor(date, () => {
 			if (/^\d{4}-\d{2}-\d{2}$/.test(date.value)) item.doneOn = date.value;
@@ -2580,7 +2594,7 @@ export class GanttBoard {
 		h("span", { cls: `sg-pill${due ? " is-warn" : ""}`, text: status }, head);
 
 		const ifRow = this.fieldWrap(sec, "If this isn't done by");
-		const by = h("input", { cls: "sg-input", attrs: { type: "date" } }, ifRow);
+		const by = this.dateInput(ifRow, "sg-input", "Decide by");
 		by.value = pb.by;
 		this.editor(by, () => {
 			if (/^\d{4}-\d{2}-\d{2}$/.test(by.value)) pb.by = by.value;
@@ -2592,8 +2606,8 @@ export class GanttBoard {
 		if (focus) window.setTimeout(() => (pb.title ? by : title).focus(), 120);
 
 		const dates = h("div", { cls: "sg-row2" }, sec);
-		const ps = h("input", { cls: "sg-input", attrs: { type: "date" } }, this.fieldWrap(dates, "Plan B from (optional)"));
-		const pe = h("input", { cls: "sg-input", attrs: { type: "date" } }, this.fieldWrap(dates, "until"));
+		const ps = this.dateInput(this.fieldWrap(dates, "Plan B from (optional)"), "sg-input", "Plan B from");
+		const pe = this.dateInput(this.fieldWrap(dates, "until"), "sg-input", "Plan B until");
 		ps.value = pb.start ?? "";
 		pe.value = pb.end ?? "";
 		this.editor(ps, () => {
@@ -2738,7 +2752,7 @@ export class GanttBoard {
 		// Composer
 		const comp = h("div", { cls: `sg-composer${draft.editingId ? " is-editing" : ""}` }, form);
 		const top = h("div", { cls: "sg-composer-top" }, comp);
-		const date = h("input", { cls: "sg-input sg-input-sm", attrs: { type: "date", "aria-label": "Date" } }, top);
+		const date = this.dateInput(top, "sg-input sg-input-sm", "Date");
 		date.value = draft.date;
 		date.addEventListener("change", () => /^\d{4}-\d{2}-\d{2}$/.test(date.value) && (draft.date = date.value));
 		const moods = h("div", { cls: "sg-moods sg-moods-sm" }, top);
@@ -3145,8 +3159,78 @@ export class GanttBoard {
 	}
 
 	private dateField(parent: El, label: string, value: string): HTMLInputElement {
-		const input = h("input", { cls: "sg-input", attrs: { type: "date" } }, this.fieldWrap(parent, label));
+		const field = h("div", { cls: "sg-field" }, parent);
+		h("span", { cls: "sg-label", text: label }, field);
+		const input = this.dateInput(field, "sg-input", label);
 		input.value = value;
+		return input;
+	}
+
+	/**
+	 * A date box that shows and reads dates the way the user writes them (24/11/2026, 11/24/2026 or
+	 * 2026-11-24; set in the plugin's settings), with a button for the calendar. Built-in date inputs follow
+	 * the app's language instead, which is usually US English. To the code it behaves like a date input: its
+	 * `value` is an ISO date, and "change" fires once a date has been typed or picked.
+	 */
+	private dateInput(parent: El, cls: string, label: string): HTMLInputElement {
+		const order = this.host.dateOrder?.() ?? "dmy";
+		const wrap = h("span", { cls: "sg-date" }, parent);
+		const input = h("input", { cls: `${cls} sg-date-text`, attrs: { type: "text", inputmode: "numeric", autocomplete: "off", spellcheck: "false", placeholder: datePlaceholder(order), "aria-label": label } }, wrap);
+		const picker = h("input", { cls: "sg-date-native", attrs: { type: "date", tabindex: "-1", "aria-hidden": "true" } }, wrap);
+		const pick = h("button", { cls: "sg-date-pick", kids: [icon("today", 14)], attrs: { type: "button", "aria-label": `Pick ${label.toLowerCase()} on a calendar`, title: "Pick on a calendar" } }, wrap);
+		const text = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!;
+		let iso = "";
+		const show = () => text.set!.call(input, formatNumericDate(iso, order));
+		Object.defineProperty(input, "value", {
+			configurable: true,
+			get: () => iso,
+			set: (v: string) => {
+				iso = /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : "";
+				show();
+			},
+		});
+		const fallbackYear = () => (iso ? +iso.slice(0, 4) : +this.host.today().slice(0, 4));
+		// Typed: read it in the chosen order. Something that isn't a date goes back to what it was.
+		input.addEventListener("change", (e) => {
+			const typed = String(text.get!.call(input)).trim();
+			const next = typed ? parseTypedDate(typed, order, fallbackYear()) : "";
+			if (next === null || next === iso) {
+				show();
+				if (next === null) input.classList.add("is-invalid");
+				window.setTimeout(() => input.classList.remove("is-invalid"), 900);
+				e.stopImmediatePropagation();
+				return;
+			}
+			iso = next;
+			show();
+		});
+		input.addEventListener("keydown", (e) => {
+			if (e.key === "Enter") {
+				e.preventDefault();
+				input.dispatchEvent(new Event("change"));
+			} else if ((e.key === "ArrowUp" || e.key === "ArrowDown") && iso) {
+				// ↑/↓ change it by a day.
+				e.preventDefault();
+				e.stopPropagation();
+				// Written into the box and read back like typing, so the change is saved.
+				text.set!.call(input, formatNumericDate(fromDay(toDay(iso) + (e.key === "ArrowUp" ? 1 : -1)), order));
+				input.dispatchEvent(new Event("change"));
+			}
+		});
+		pick.addEventListener("click", () => {
+			picker.value = iso;
+			try {
+				picker.showPicker();
+			} catch {
+				picker.focus();
+			}
+		});
+		picker.addEventListener("change", () => {
+			if (!/^\d{4}-\d{2}-\d{2}$/.test(picker.value) || picker.value === iso) return;
+			input.dispatchEvent(new Event("focus"));
+			text.set!.call(input, formatNumericDate(picker.value, order));
+			input.dispatchEvent(new Event("change"));
+		});
 		return input;
 	}
 
@@ -3217,7 +3301,39 @@ export class GanttBoard {
 				this.menuItem(menu, [icon("gantt", 14), span(pr.title)], () => this.host.switchProject(pr.id), pr.id === this.projectId ? "is-active" : "");
 			h("div", { cls: "sg-menu-sep" }, menu);
 			for (const t of TEMPLATES) this.menuItem(menu, [icon("plus", 14), span(`New: ${t.name}`)], () => this.host.createProject(t.id));
+			if (this.project && this.host.deleteProject) {
+				h("div", { cls: "sg-menu-sep" }, menu);
+				this.menuItem(menu, [icon("trash", 14), span("Delete this timeline…")], () => this.confirmDelete(), "is-danger");
+			}
 		});
+	}
+
+	/** Ask, then move the open timeline's note to the trash (it can be restored from there). */
+	confirmDelete() {
+		if (!this.project || !this.host.deleteProject) return;
+		this.closeMenu();
+		this.root.querySelector(".sg-confirm-overlay")?.remove();
+		const overlay = h("div", { cls: "sg-confirm-overlay" }, this.root);
+		const card = h("div", { cls: "sg-confirm", attrs: { role: "alertdialog", "aria-modal": "true", "aria-label": "Delete this timeline?" } }, overlay);
+		h("h3", { text: `Delete “${this.project.title || "this timeline"}”?` }, card);
+		h("p", { text: "Its note goes to the trash, so you can still get it back from there. Your other notes are not touched." }, card);
+		const row = h("div", { cls: "sg-confirm-buttons" }, card);
+		const cancel = h("button", { cls: "sg-btn", text: "Cancel" }, row);
+		const del = h("button", { cls: "sg-btn is-danger", kids: [icon("trash", 14), span("Delete")] }, row);
+		const close = () => overlay.remove();
+		cancel.addEventListener("click", close);
+		overlay.addEventListener("click", (e) => e.target === overlay && close());
+		overlay.addEventListener("keydown", (e) => {
+			if (e.key === "Escape") {
+				e.stopPropagation();
+				close();
+			}
+		});
+		del.addEventListener("click", () => {
+			close();
+			void this.host.deleteProject?.();
+		});
+		cancel.focus();
 	}
 
 	private openExportMenu(anchor: El) {

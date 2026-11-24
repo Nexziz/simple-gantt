@@ -134,7 +134,7 @@ function check(cond: unknown, msg: string) {
 		board["select"](pilot.id, true, "planb");
 		(document.querySelector(".sg-planb-add") as HTMLButtonElement).click();
 		check(pilot.planB?.by === pilot.end, "Plan B defaults to deciding on the planned end date");
-		const then = [...document.querySelectorAll(".sg-planb input[type=text]")][0] as HTMLInputElement;
+		const then = [...document.querySelectorAll(".sg-planb input[type=text]:not(.sg-date-text)")][0] as HTMLInputElement;
 		then.dispatchEvent(new Event("focus"));
 		then.value = "Run an online survey instead";
 		then.dispatchEvent(new Event("input"));
@@ -679,6 +679,49 @@ function check(cond: unknown, msg: string) {
 		arrange?.click();
 		check(alpha.row === undefined, "…which forgets where they were put");
 		key("Escape");
+
+		// ── 0.6.22 (GitHub issues 1–3) ──
+		// Dates are written and typed day first (24/11/2026) by default, not in the app's US format.
+		key("Escape");
+		board["select"](alpha.id, true);
+		await sleep(50);
+		const startBox = document.querySelector(".sg-panel .sg-date-text") as HTMLInputElement;
+		const shown = () => Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.get!.call(startBox) as string;
+		check(/^\d{2}\/\d{2}\/\d{4}$/.test(shown()) && shown() === `${alpha.start.slice(8)}/${alpha.start.slice(5, 7)}/${alpha.start.slice(0, 4)}`, `date fields show DD/MM/YYYY (${shown()})`);
+		const typeDate = (box: HTMLInputElement, text: string) => {
+			Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(box, text);
+			box.dispatchEvent(new Event("change"));
+		};
+		typeDate(startBox, "25/12/2026");
+		check(alpha.start === "2026-12-25", `typing 25/12/2026 sets 25 December (${alpha.start})`);
+		typeDate(startBox, "31/02/2027");
+		check(alpha.start === "2026-12-25" && shown() === "25/12/2026", "something that isn't a date is undone");
+		startBox.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
+		check(alpha.start === "2026-12-26", "↑ in a date field moves it a day");
+		check(document.querySelector(".sg-panel .sg-date-pick"), "…and a calendar button opens the date picker");
+		key("Escape");
+		// Month view: weekday letters over the days.
+		board.setZoom("month");
+		await sleep(700);
+		const letters = [...document.querySelectorAll(".sg-header svg text")].map((t) => t.textContent ?? "").filter((t) => /^[MTWFS]$/.test(t)).join("");
+		check(/MTWTFSS/.test(letters), `the month view names the days (${letters.slice(0, 14)}; ${board["layout"].pxPerDay.toFixed(1)} px a day)`);
+		board.setZoom("year");
+		await sleep(700);
+		// Deleting a timeline from inside the plugin: it goes to the trash and another one opens.
+		const keep = view().currentPath();
+		board["host"].createProject("blank");
+		await sleep(300);
+		const doomed = view().currentPath();
+		check(doomed && doomed !== keep, `a second timeline to delete (${doomed})`);
+		board["openProjectMenu"]();
+		const delItem = [...document.querySelectorAll(".sg-menu .sg-menu-item")].find((b) => b.textContent?.includes("Delete this timeline")) as HTMLButtonElement;
+		check(delItem, "the timeline menu offers to delete it");
+		delItem.click();
+		check(document.querySelector(".sg-confirm") && app.vault.getAbstractFileByPath(doomed), "…after asking first");
+		([...document.querySelectorAll(".sg-confirm button")].find((b) => b.textContent?.includes("Delete")) as HTMLButtonElement).click();
+		await sleep(300);
+		check((app as any).trashed.includes(doomed) && !app.vault.getAbstractFileByPath(doomed), "the note goes to the trash");
+		check(view().currentPath() === keep && !(window as any).plugin?.settings?.projects?.includes(doomed), "…and the other timeline opens");
 
 		log.push(`notices: ${JSON.stringify(notices)}`);
 		(window as any).__note = await app.vault.read(file);

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { formatDistance, formatLength, toDay } from "../src/core/dates";
+import { formatDistance, formatLength, formatNumericDate, parseTypedDate, toDay } from "../src/core/dates";
 import { checkInSlots, dueCheckIn, slotStates } from "../src/core/journal";
 import { computeNudges, nextDeadline, overallProgress, rippleShift } from "../src/core/nudges";
 import { normalizeProject, toPlain } from "../src/core/serialize";
@@ -11,7 +11,7 @@ import { applyImport, parseImport } from "../src/core/importer";
 import { DEFAULT_PRINT, pageSize, printSettingsOf } from "../src/core/printSettings";
 import { phaseWorkDays } from "../src/core/durations";
 import { isOn, setFeature } from "../src/core/features";
-import { computeLayout } from "../src/core/layout";
+import { DAY_NAME_ROW_H, computeLayout } from "../src/core/layout";
 import { createFromTemplate } from "../src/core/templates";
 import { cloneProject } from "../src/core/types";
 import { SAMPLE } from "./sample";
@@ -622,6 +622,35 @@ t("a buffer moved to another row by hand leaves its task; one on the task's row 
 	const b = lay2.placed.find((x) => x.item.id === "b")!;
 	assert.equal(b.attachedTo, undefined);
 	assert.equal(b.row, 2);
+});
+
+t("dates are shown and read in the user's order: day first, month first or year first", () => {
+	assert.equal(formatNumericDate("2026-11-24", "dmy"), "24/11/2026");
+	assert.equal(formatNumericDate("2026-11-24", "mdy"), "11/24/2026");
+	assert.equal(formatNumericDate("2026-11-24", "ymd"), "2026-11-24");
+	assert.equal(formatNumericDate("", "dmy"), "");
+	const dmy = (s: string) => parseTypedDate(s, "dmy", 2026);
+	assert.equal(dmy("24/11/2026"), "2026-11-24");
+	assert.equal(dmy("3.7.27"), "2027-07-03", "dots and a two-digit year");
+	assert.equal(dmy("3-7"), "2026-07-03", "no year: the one it had");
+	assert.equal(dmy("2027-01-05"), "2027-01-05", "year first always works");
+	assert.equal(dmy("24 Nov 2026"), "2026-11-24");
+	assert.equal(dmy("Nov 24"), "2026-11-24");
+	assert.equal(dmy("31/02/2027"), null, "not a real day");
+	assert.equal(dmy("hello"), null);
+	assert.equal(parseTypedDate("11/24/2026", "mdy", 2026), "2026-11-24");
+	assert.equal(parseTypedDate("3/7/2027", "mdy", 2026), "2027-03-07");
+	assert.equal(parseTypedDate("24/11/2026", "mdy", 2026), null, "month first: there's no month 24");
+});
+
+t("the header shows weekday letters once every day has its own column", () => {
+	const p = normalizeProject({ start: "2027-01-04", end: "2027-02-28", phases: [{ id: "a", name: "A" }],
+		items: [{ id: "t", type: "task", title: "T", phase: "a", start: "2027-01-10", end: "2027-01-20" }] });
+	const measure = (s: string) => s.length * 6;
+	const day = computeLayout(p, { pxPerDay: 32, showEmptyLanes: false, measure });
+	const week = computeLayout(p, { pxPerDay: 8, showEmptyLanes: false, measure });
+	assert.ok(day.showDays && !week.showDays);
+	assert.equal(day.headerH - week.headerH, DAY_NAME_ROW_H, "one short row more, only then");
 });
 
 console.log(failed ? `\n${failed} failed` : `\nall nudge/journal/link/feature tests passed`);

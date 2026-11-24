@@ -113,6 +113,50 @@ export function formatDistance(days: number, unit: TimeUnit): string {
 	return plural(Math.round(days / 7), "week");
 }
 
+/** How dates are written in date fields and read when typed: day first, month first, or year first. */
+export type DateOrder = "dmy" | "mdy" | "ymd";
+export const DATE_ORDERS: DateOrder[] = ["dmy", "mdy", "ymd"];
+export const DATE_ORDER_LABELS: Record<DateOrder, string> = {
+	dmy: "Day first: 24/11/2026",
+	mdy: "Month first: 11/24/2026",
+	ymd: "Year first: 2026-11-24",
+};
+
+/** An ISO date as it's shown in a date field: 24/11/2026, 11/24/2026 or 2026-11-24. */
+export function formatNumericDate(iso: string, order: DateOrder): string {
+	if (!isIsoDate(iso)) return "";
+	const [y, m, d] = iso.split("-");
+	return order === "ymd" ? `${y}-${m}-${d}` : order === "mdy" ? `${m}/${d}/${y}` : `${d}/${m}/${y}`;
+}
+
+/** The pattern to show in an empty date field. */
+export function datePlaceholder(order: DateOrder): string {
+	return order === "ymd" ? "YYYY-MM-DD" : order === "mdy" ? "MM/DD/YYYY" : "DD/MM/YYYY";
+}
+
+/**
+ * A date typed into a field, as an ISO date (null if it isn't one): numbers in the chosen order with / . - or
+ * spaces, a two-digit year, no year at all (then `fallbackYear`), year first (2026-11-24), or with a month name
+ * ("24 Nov 2026", "Nov 24").
+ */
+export function parseTypedDate(text: string, order: DateOrder, fallbackYear: number): string | null {
+	const t = text.trim().toLowerCase().replace(/,/g, " ").replace(/\s+/g, " ");
+	if (!t) return null;
+	const yr = (s: string | undefined) => (s ? (s.length <= 2 ? 2000 + +s : +s) : fallbackYear);
+	const make = (y: number, m: number, d: number) =>
+		m >= 1 && m <= 12 && d >= 1 && d <= daysInMonth(y, m - 1) ? `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}` : null;
+	let m = /^(\d{4})[-/. ](\d{1,2})[-/. ](\d{1,2})$/.exec(t);
+	if (m) return make(+m[1], +m[2], +m[3]);
+	m = /^(\d{1,2})[-/. ](\d{1,2})(?:[-/. ](\d{4}|\d{2}))?$/.exec(t);
+	if (m) return order === "mdy" ? make(yr(m[3]), +m[1], +m[2]) : make(yr(m[3]), +m[2], +m[1]);
+	const month = (name: string) => MONTHS_SHORT.findIndex((x) => name.startsWith(x.toLowerCase())) + 1;
+	m = /^(\d{1,2})(?:st|nd|rd|th)?\.? ([a-z]+)\.?(?: (\d{4}|\d{2}))?$/.exec(t);
+	if (m && month(m[2])) return make(yr(m[3]), month(m[2]), +m[1]);
+	m = /^([a-z]+)\.? (\d{1,2})(?:st|nd|rd|th)?(?: (\d{4}|\d{2}))?$/.exec(t);
+	if (m && month(m[1])) return make(yr(m[3]), month(m[1]), +m[2]);
+	return null;
+}
+
 /** Short month span label, e.g. "Sep – Feb". */
 export function formatMonthSpan(startDay: number, endDay: number): string {
 	const [sy, sm] = ymd(startDay);

@@ -45,6 +45,8 @@ export class GanttView extends ItemView {
 			notify: (m) => new Notice(m),
 			openNote: (link) => void this.app.workspace.openLinkText(link, this.file?.path ?? "", "tab"),
 			suggestNotes: (q) => this.suggestNotes(q),
+			dateOrder: () => this.plugin.settings.dateOrder,
+			deleteProject: () => this.deleteProject(),
 		});
 
 		this.registerEvent(this.app.workspace.on("css-change", () => this.board?.refreshTheme()));
@@ -95,6 +97,31 @@ export class GanttView extends ItemView {
 
 	openPrintDialog() {
 		this.board?.openPrintDialog();
+	}
+
+	/** Ask, then delete the open timeline (the command and the board's menus). */
+	confirmDelete() {
+		this.board?.confirmDelete();
+	}
+
+	/** Date fields follow the date format setting: redraw them when it changes. */
+	refreshDates() {
+		this.board?.refreshDates();
+	}
+
+	/** Move the open timeline's note to the trash (Obsidian's own, so it follows the "Deleted files" setting), then open another. */
+	private async deleteProject() {
+		const file = this.file;
+		if (!file) return;
+		await this.flush();
+		const title = file.basename;
+		this.file = null;
+		this.lastYaml = null;
+		await this.app.fileManager.trashFile(file);
+		const next = this.plugin.listProjects().find((f) => f.path !== file.path);
+		if (next) await this.loadFile(next);
+		else this.board?.setProject(null);
+		new Notice(`Deleted “${title}”. It's in the trash if you need it back.`);
 	}
 
 	/** Select an item and scroll it into view (e.g. from the sidebar overview). */

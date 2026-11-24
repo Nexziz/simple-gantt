@@ -1,5 +1,5 @@
 import { MONTHS_LONG, MONTHS_SHORT, dayFromYmd, formatDay, monthEnd, toDay, weekday, ymd } from "./dates";
-import { Lane, Layout, MILESTONE_BADGE_PAD, Measure, NOTE_GAP, Placed, captionY, computeLayout } from "./layout";
+import { DAILY_PPD, DAY_NAME_ROW_H, Lane, Layout, MILESTONE_BADGE_PAD, Measure, NOTE_GAP, Placed, captionY, computeLayout } from "./layout";
 import { PRINT_THEME, Theme, inkOnFill } from "./theme";
 import { earliestAfter } from "./links";
 import { BufferPattern, Mood, Project, isDone, isRangeType } from "./types";
@@ -122,7 +122,9 @@ export function paintHeader(layout: Layout, o: PaintOptions): SVGSVGElement {
 	const svg = svgEl("svg", { width: layout.width, height: layout.headerH, class: "sg-header-svg", "font-family": theme.font });
 	svgEl("rect", { x: 0, y: 0, width: layout.width, height: layout.headerH, fill: theme.surface }, svg);
 	const yMonthTop = layout.g.yearRowH;
-	const yWeekTop = layout.g.yearRowH + layout.g.monthRowH;
+	// With every day shown, their weekday letters get a row of their own above the numbers.
+	const yDayNames = layout.g.yearRowH + layout.g.monthRowH;
+	const yWeekTop = yDayNames + (layout.showDays ? DAY_NAME_ROW_H : 0);
 
 	const [v0, v1] = o.visible ?? [0, layout.width];
 
@@ -167,12 +169,17 @@ export function paintHeader(layout: Layout, o: PaintOptions): SVGSVGElement {
 	}
 
 	if (layout.showWeeks) {
-		const daily = layout.pxPerDay >= 22;
+		const daily = layout.pxPerDay >= DAILY_PPD;
 		for (let d = layout.viewStart; d <= layout.viewEnd; d++) {
 			const wd = weekday(d);
 			if (!daily && wd !== 0) continue;
 			const x = layout.xOf(d);
 			const dom = ymd(d)[2];
+			if (daily && layout.showDays)
+				text(svg, x + layout.pxPerDay / 2, yDayNames + DAY_NAME_ROW_H / 2 + 2, WEEKDAY_LETTERS[wd], {
+					fill: theme.inkMuted, "fill-opacity": wd >= 5 ? 0.6 : 1, "font-size": 9.5, "font-weight": 600, "text-anchor": "middle",
+					"letter-spacing": "0.02em",
+				});
 			if (daily) {
 				text(svg, x + layout.pxPerDay / 2, yWeekTop + layout.g.weekRowH / 2, String(dom), {
 					fill: wd >= 5 ? theme.inkMuted : theme.inkSecondary, "font-size": 10, "text-anchor": "middle",
@@ -222,6 +229,9 @@ export function paintHeader(layout: Layout, o: PaintOptions): SVGSVGElement {
 	}
 	return svg;
 }
+
+/** Monday first, like the week rows. */
+const WEEKDAY_LETTERS = ["M", "T", "W", "T", "F", "S", "S"];
 
 // ─── Lane labels (left column) ─────────────────────────────────────────────
 

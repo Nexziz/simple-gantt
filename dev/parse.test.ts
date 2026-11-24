@@ -42,5 +42,15 @@ for (const [input, expected] of cases) {
 		console.log(`  ✗ ${input}\n      ${(e as Error).message}\n      ${JSON.stringify(r)}`);
 	}
 }
-console.log(failed ? `\n${failed} failed` : `\nall ${cases.length} passed`);
+// With "month first" chosen in the settings, 3/7/2027 is 7 March.
+for (const [input, want, order] of [["Revise 3/7/2027 - 10/7/2027", ["2027-03-07", "2027-10-07"], "mdy"], ["Revise 3/7/2027", ["2027-07-03"], "dmy"]] as const) {
+	const r = parseQuickAdd(input, { ...ctx, dateOrder: order });
+	const got = [r?.start, ...(want.length > 1 ? [r?.end] : [])];
+	if (JSON.stringify(got) === JSON.stringify(want)) console.log(`  ✓ ${input} (${order})`);
+	else {
+		failed++;
+		console.log(`  ✗ ${input} (${order}): got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`);
+	}
+}
+console.log(failed ? `\n${failed} failed` : `\nall ${cases.length + 2} passed`);
 if (failed) process.exit(1);

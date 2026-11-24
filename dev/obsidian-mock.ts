@@ -95,6 +95,16 @@ export class App {
 	vault = new Vault();
 	metadataCache = new MetadataCache(this.vault);
 	workspace = new Workspace(this);
+	/** Trashing a note removes it from the vault, like Obsidian's own trash. */
+	trashed: string[] = [];
+	fileManager = {
+		trashFile: async (f: TFile) => {
+			this.vault.files.delete(f.path);
+			this.vault.data.delete(f.path);
+			this.trashed.push(f.path);
+			this.vault.trigger("delete", f);
+		},
+	};
 }
 
 export class Component {

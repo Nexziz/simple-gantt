@@ -25,6 +25,7 @@ export default class SimpleGanttPlugin extends Plugin {
 		this.addCommand({ id: "show-overview", name: "Show overview in the sidebar", callback: () => void this.showOverview("left") });
 		this.addCommand({ id: "import", name: "Import into the open timeline", callback: () => void this.withBoard((v) => v.openImport()) });
 		this.addCommand({ id: "print-pdf", name: "Print or save as PDF", callback: () => void this.withBoard((v) => v.openPrintDialog()) });
+		this.addCommand({ id: "delete-timeline", name: "Delete the open timeline", callback: () => void this.withBoard((v) => v.confirmDelete()) });
 		this.addCommand({
 			id: "new-dissertation",
 			name: "New dissertation timeline",
@@ -114,6 +115,11 @@ export default class SimpleGanttPlugin extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
+	}
+
+	/** Open timelines redraw their date fields after the date format changed. */
+	refreshDates() {
+		for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) if (leaf.view instanceof GanttView) leaf.view.refreshDates();
 	}
 
 	/** Track a timeline note (most recent first) and make it the one the view reopens. */

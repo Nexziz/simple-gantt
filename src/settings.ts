@@ -1,5 +1,6 @@
 import { App, PluginSettingTab, Setting, SettingDefinitionItem } from "obsidian";
 import type SimpleGanttPlugin from "./main";
+import { DATE_ORDERS, DATE_ORDER_LABELS, DateOrder } from "./core/dates";
 import { SUPPORT_URL } from "./support";
 
 export interface SimpleGanttSettings {
@@ -13,6 +14,8 @@ export interface SimpleGanttSettings {
 	projects: string[];
 	/** Show the button in the left ribbon. */
 	showRibbon: boolean;
+	/** How dates are written in date fields and read when typed. */
+	dateOrder: DateOrder;
 }
 
 export const DEFAULT_SETTINGS: SimpleGanttSettings = {
@@ -21,7 +24,10 @@ export const DEFAULT_SETTINGS: SimpleGanttSettings = {
 	lastProject: null,
 	projects: [],
 	showRibbon: true,
+	dateOrder: "dmy",
 };
+
+const DATE_DESC = "How dates are written in the date fields and read when you type them, e.g. 3/7/2027 in the quick-add bar.";
 
 const PANEL_DESC =
 	"A small panel with your next deadline, what's on now and what's coming up. Once it's open, drag its icon onto any tab group in the sidebars, for example next to Files at the top or into the bottom half.";
@@ -43,6 +49,12 @@ export class SimpleGanttSettingTab extends PluginSettingTab {
 				name: "Export folder",
 				desc: "Where PNG and SVG exports are saved. Leave empty to save next to the timeline note.",
 				control: { type: "folder", key: "exportFolder", placeholder: "Next to the note", includeRoot: true },
+			},
+			{
+				name: "Date format",
+				desc: DATE_DESC,
+				aliases: ["date", "dd/mm/yyyy", "mm/dd/yyyy", "american", "european", "day month"],
+				control: { type: "dropdown", key: "dateOrder", options: DATE_ORDER_LABELS },
 			},
 			{
 				type: "group",
@@ -88,10 +100,12 @@ export class SimpleGanttSettingTab extends PluginSettingTab {
 
 	getControlValue(key: string): unknown {
 		if (key === "showRibbon") return this.plugin.settings.showRibbon;
+		if (key === "dateOrder") return this.plugin.settings.dateOrder;
 		return key === "folder" || key === "exportFolder" ? this.plugin.settings[key] : undefined;
 	}
 
 	async setControlValue(key: string, value: unknown): Promise<void> {
+		if (key === "dateOrder") return this.setDateOrder(value);
 		if (key === "showRibbon") {
 			this.plugin.settings.showRibbon = value === true;
 			this.plugin.setRibbon(value === true);
@@ -101,6 +115,13 @@ export class SimpleGanttSettingTab extends PluginSettingTab {
 		if (key !== "folder" && key !== "exportFolder") return;
 		this.plugin.settings[key] = (typeof value === "string" ? value : "").trim().replace(/^\/+|\/+$/g, "");
 		await this.plugin.saveSettings();
+	}
+
+	private async setDateOrder(value: unknown) {
+		if (!DATE_ORDERS.includes(value as DateOrder)) return;
+		this.plugin.settings.dateOrder = value as DateOrder;
+		await this.plugin.saveSettings();
+		this.plugin.refreshDates();
 	}
 
 	/** Fallback for Obsidian versions before 1.13, which don't use the definitions above. */
@@ -127,6 +148,11 @@ export class SimpleGanttSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}),
 			);
+
+		new Setting(containerEl)
+			.setName("Date format")
+			.setDesc(DATE_DESC)
+			.addDropdown((d) => d.addOptions(DATE_ORDER_LABELS).setValue(this.plugin.settings.dateOrder).onChange((v) => void this.setDateOrder(v)));
 
 		new Setting(containerEl).setName("Ribbon and sidebar").setHeading();
 		new Setting(containerEl)

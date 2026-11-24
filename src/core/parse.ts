@@ -17,6 +17,8 @@ export interface ParseContext {
 	defaultType: ItemType;
 	/** ISO date used when no date is given. */
 	today: string;
+	/** How numbers like 3/7/2027 are read: day first (3 July, the default) or month first (7 March). */
+	dateOrder?: "dmy" | "mdy" | "ymd";
 }
 
 export interface ParseResult {
@@ -51,12 +53,15 @@ interface Partial {
 
 type Matcher = { re: RegExp; read: (m: RegExpExecArray) => Partial[] | null };
 
+/** Set for each parse from the context: whether 3/7/2027 means 7 March (month first) or 3 July. */
+let monthFirst = false;
+
 const D = "(\\d{1,2})(?:st|nd|rd|th)?";
 const Y = "(?:,?\\s*'?(\\d{4}|\\d{2}))?";
 
 const single: Matcher[] = [
 	{ re: /(\d{4})-(\d{1,2})-(\d{1,2})/, read: (m) => [{ y: +m[1], m: +m[2] - 1, d: +m[3] }] },
-	{ re: /(\d{1,2})[/.](\d{1,2})[/.](\d{4}|\d{2})\b/, read: (m) => [{ d: +m[1], m: +m[2] - 1, y: year(m[3]) }] },
+	{ re: /(\d{1,2})[/.](\d{1,2})[/.](\d{4}|\d{2})\b/, read: (m) => [monthFirst ? { m: +m[1] - 1, d: +m[2], y: year(m[3]) } : { d: +m[1], m: +m[2] - 1, y: year(m[3]) }] },
 	{ re: new RegExp(`\\b${D}\\s+${MONTH_RE}\\b${Y}`, "i"), read: (m) => [{ d: +m[1], m: monthIndex(m[2]), y: year(m[3]) }] },
 	{ re: new RegExp(`\\b${MONTH_RE}\\s+${D}\\b${Y}`, "i"), read: (m) => [{ d: +m[2], m: monthIndex(m[1]), y: year(m[3]) }] },
 	{ re: new RegExp(`\\b${MONTH_RE}\\b${Y}`, "i"), read: (m) => [{ m: monthIndex(m[1]), y: year(m[2]) }] },
@@ -145,6 +150,7 @@ const KEYWORD_TYPES: [RegExp, ItemType][] = [
 ];
 
 export function parseQuickAdd(input: string, ctx: ParseContext): ParseResult | null {
+	monthFirst = ctx.dateOrder === "mdy";
 	let text = ` ${input.trim()} `;
 	if (!input.trim()) return null;
 

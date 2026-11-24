@@ -1448,3 +1448,51 @@
 	.sg-root .sg-print { flex-direction: column; }
 	.sg-root .sg-print-side { width: auto; max-height: 50%; border-right: none; border-bottom: 1px solid var(--background-modifier-border); }
 }
+
+/* ── Date fields (written the user's way, with a calendar button) ── */
+.sg-date { position: relative; display: flex; align-items: center; min-width: 0; }
+.sg-date .sg-date-text { flex: 1; min-width: 0; padding-right: 30px; font-variant-numeric: tabular-nums; }
+.sg-date .sg-date-text.is-invalid { border-color: var(--text-error, #e5484d); box-shadow: 0 0 0 1px var(--text-error, #e5484d); }
+.sg-date-native { position: absolute; right: 0; bottom: 0; width: 1px; height: 1px; padding: 0; border: 0; opacity: 0; pointer-events: none; }
+.sg-root .sg-date-pick {
+	position: absolute;
+	right: 3px;
+	display: grid;
+	place-items: center;
+	width: 24px;
+	height: 24px;
+	padding: 0;
+	border: none;
+	border-radius: 6px;
+	background: transparent;
+	box-shadow: none;
+	color: var(--text-muted);
+	cursor: pointer;
+}
+.sg-root .sg-date-pick:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
+
+/* ── Confirm (delete a timeline) ── */
+.sg-root .sg-confirm-overlay {
+	position: absolute;
+	inset: 0;
+	z-index: 45;
+	display: grid;
+	place-items: center;
+	padding: 16px;
+	background: rgba(0, 0, 0, 0.32);
+	animation: sg-fade 0.15s ease-out;
+}
+.sg-root .sg-confirm {
+	width: min(380px, 100%);
+	padding: 18px 20px 16px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 14px;
+	background: var(--background-primary);
+	box-shadow: var(--shadow-l);
+}
+.sg-root .sg-confirm h3 { margin: 0 0 6px; font-size: 15px; }
+.sg-root .sg-confirm p { margin: 0 0 14px; color: var(--text-muted); font-size: 13px; line-height: 1.45; }
+.sg-root .sg-confirm-buttons { display: flex; justify-content: flex-end; gap: 8px; }
+.sg-root .sg-btn.is-danger { background: var(--background-modifier-error, #e5484d); color: #ffffff; border-color: transparent; }
+.sg-root .sg-btn.is-danger:hover { filter: brightness(1.08); }
+.sg-root .sg-delete-timeline { align-self: flex-start; margin-top: 10px; color: var(--text-error, #e5484d); }

@@ -187,6 +187,8 @@ export interface Layout {
 	headerH: number;
 	bodyH: number;
 	showWeeks: boolean;
+	/** Days are wide enough to show one by one: a row of weekday letters (M T W T F S S) above their numbers. */
+	showDays: boolean;
 	lanes: Lane[];
 	placed: Placed[];
 	xOf(day: number): number;
@@ -251,6 +253,11 @@ export function itemDays(item: GanttItem): [number, number] {
 	return [s, e];
 }
 
+/** From this many pixels a day, the header shows every day (with its weekday letter) instead of week starts. */
+export const DAILY_PPD = 22;
+/** Height of the weekday letters' row. */
+export const DAY_NAME_ROW_H = 15;
+
 export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 	const g = opts.geometry ?? geometry(opts.density ?? project.density);
 	const [viewStart, viewEnd] = viewRange(project);
@@ -259,7 +266,8 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 	const xOf = (day: number) => (day - viewStart) * ppd;
 	const dayAt = (x: number) => viewStart + Math.floor(x / ppd);
 	const showWeeks = opts.weeks ?? ppd >= 4.5;
-	const headerH = g.yearRowH + g.monthRowH + (showWeeks ? g.weekRowH : 0);
+	const showDays = showWeeks && ppd >= DAILY_PPD;
+	const headerH = g.yearRowH + g.monthRowH + (showWeeks ? g.weekRowH : 0) + (showDays ? DAY_NAME_ROW_H : 0);
 
 	const phaseIds = new Set(project.phases.map((p) => p.id));
 	const today = opts.today ?? toDay(new Date().toISOString().slice(0, 10));
@@ -646,7 +654,7 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 		});
 		return best;
 	};
-	return { g, on, viewStart, viewEnd, pxPerDay: ppd, width, headerH, bodyH: y, showWeeks, lanes, placed, xOf, dayAt, rowAt };
+	return { g, on, viewStart, viewEnd, pxPerDay: ppd, width, headerH, bodyH: y, showWeeks, showDays, lanes, placed, xOf, dayAt, rowAt };
 }
 
 /** A collapsed phase: one bar over its whole span (with overall progress) plus its milestones. */
