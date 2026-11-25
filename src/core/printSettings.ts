@@ -22,6 +22,8 @@ export interface PrintSettings {
 	tableDeadlines: boolean;
 	/** A task's dates after its name. */
 	taskDates: boolean;
+	/** Hours worked from Pocket Watch, after each task's name and under each phase's (when it has them). */
+	hours: boolean;
 	/** The line marking the day it's printed. */
 	today: boolean;
 	/** Arrows between linked steps. */
@@ -54,6 +56,7 @@ export const DEFAULT_PRINT: PrintSettings = {
 	phaseDurations: true,
 	tableDeadlines: false,
 	taskDates: true,
+	hours: true,
 	today: true,
 	arrows: true,
 	longArrows: true,

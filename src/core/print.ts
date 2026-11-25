@@ -6,6 +6,8 @@ import { NS, PaintOptions, bufferPattern, formatPeriod, makeMeasure, nest, paint
 import { PRINT_THEME, Theme } from "./theme";
 import { BufferPattern, Project, isDone } from "./types";
 import { phaseWorkDays } from "./durations";
+import { Hours, phaseHours } from "./hours";
+import { isOn } from "./features";
 
 /** A4 landscape in CSS pixels at 96 dpi (297 × 210 mm), so text prints at its real size. */
 export const A4_LANDSCAPE = { width: 1123, height: 794, widthPt: 841.89, heightPt: 595.28 };
@@ -17,6 +19,8 @@ export interface PrintOptions {
 	theme?: Theme;
 	/** Paper, spacing and what to show; defaults to the timeline's own saved settings. */
 	settings?: PrintSettings;
+	/** Hours worked from Pocket Watch, shown when the timeline and the print settings both have them on. */
+	hours?: Hours | null;
 }
 
 /** Text and bar sizes for each text size; the largest row spacing to aim for at each spacing. */
@@ -41,6 +45,7 @@ export function renderPrintPages(project: Project, opts: PrintOptions = {}): SVG
 	const title1 = 50, titleN = 26, gap = 14;
 	const compare = !!(opts.compare && project.baseline);
 	const today = set.today ? (opts.today ?? null) : null;
+	const hours = set.hours && isOn(project, "hours") ? (opts.hours ?? null) : null;
 
 	// The tables under the chart (on the last page) take their share of the sheet first.
 	const table = bottomTables(project, set, theme, measure, W - 2 * M, opts.today ?? null);
@@ -51,6 +56,7 @@ export function renderPrintPages(project: Project, opts: PrintOptions = {}): SVG
 	const layoutOpts = {
 		showEmptyLanes: false, measure, print: true,
 		taskDates: set.taskDates, captions: set.captions, captionDates: set.captionDates, captionPlace: set.captionPlace, weeks: set.weeks ? undefined : false,
+		hours,
 	};
 	let layout = computeLayout(project, { ...layoutOpts, pxPerDay: 1, density: "print" });
 	const days = layout.viewEnd - layout.viewStart + 1;
@@ -75,13 +81,15 @@ export function renderPrintPages(project: Project, opts: PrintOptions = {}): SVG
 		const roomier = sized({ ...g, lanePad: g.lanePad * f, minLaneH: g.minLaneH * Math.min(f, 1.4) });
 		if (roomier.bodyH <= room(title1, layout.headerH)) layout = roomier;
 	}
-	// Under each phase's name: how long its work takes, which stays true whenever the page is read.
+	// Under each phase's name: how long its work takes, which stays true whenever the page is read, and the
+	// hours worked on it so far.
 	const laneNotes = new Map<string, string>();
-	if (set.phaseDurations)
-		for (const ph of project.phases) {
-			const days = phaseWorkDays(project, ph.id);
-			if (days) laneNotes.set(ph.id, `${formatLength(days, set.timeUnit)} of work`);
-		}
+	for (const ph of project.phases) {
+		const days = set.phaseDurations ? phaseWorkDays(project, ph.id) : 0;
+		const worked = phaseHours(hours, ph.id);
+		const note = [days ? `${formatLength(days, set.timeUnit)} of work` : "", worked ? `${worked} worked` : ""].filter(Boolean).join("\n");
+		if (note) laneNotes.set(ph.id, note);
+	}
 	const paint: PaintOptions = {
 		theme, measure, interactive: false, print: true, today, hideLinks: !set.arrows, shortLinksOnly: !set.longArrows,
 		plan: compare ? project.baseline : null, laneNotes,

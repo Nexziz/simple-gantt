@@ -3,6 +3,8 @@ import { DAILY_PPD, DAY_NAME_ROW_H, Lane, Layout, MILESTONE_BADGE_PAD, Measure, 
 import { PRINT_THEME, Theme, inkOnFill } from "./theme";
 import { earliestAfter } from "./links";
 import { BufferPattern, Mood, Project, isDone, isRangeType } from "./types";
+import { Hours, phaseHours } from "./hours";
+import { isOn } from "./features";
 
 /** Mood scale for journal dots: diverging red → neutral grey → blue. */
 export const MOOD_COLORS: Record<Mood, string> = { 1: "#e34948", 2: "#ec9a8c", 3: "#a9a79f", 4: "#6da7ec", 5: "#2a78d6" };
@@ -87,7 +89,7 @@ export interface PaintOptions {
 	hideLinks?: boolean;
 	/** Paper: only the arrows between neighbouring phases, not the long ones through other phases. */
 	shortLinksOnly?: boolean;
-	/** Paper: a line under a phase's name (its duration), by lane key. */
+	/** Paper: lines under a phase's name (its duration, the hours worked on it), by lane key, one per "\n". */
 	laneNotes?: Map<string, string>;
 	flashId?: string | null;
 	interactive?: boolean;
@@ -276,13 +278,14 @@ export function paintLabels(layout: Layout, labelWidth: number, o: PaintOptions)
 		const tx = 34 + indent;
 		const max = labelWidth - tx - (o.interactive ? 40 : 12);
 		if (o.print) {
-			// Paper: the name (on two lines when it's long) and, if chosen, how long the phase's work takes.
+			// Paper: the name (on two lines when it's long) and, if chosen, how long the phase's work takes and the
+			// hours worked on it, a line each.
 			const lines = wrapTwo(lane.title, max, measure, 600, 13);
-			const note = o.laneNotes?.get(lane.key);
-			const rows = lines.length + (note ? 1 : 0);
+			const notes = o.laneNotes?.get(lane.key)?.split("\n").filter(Boolean) ?? [];
+			const rows = lines.length + notes.length;
 			const rowY = (k: number) => mid + (k - (rows - 1) / 2) * 16;
 			lines.forEach((line, k) => text(g, tx, rowY(k), line, { fill: theme.ink, "font-size": 13, "font-weight": 600 }));
-			if (note) text(g, tx, rowY(lines.length) + 1, truncate(note, max, measure, 400, 11), { fill: theme.inkSecondary, "font-size": 11 });
+			notes.forEach((note, k) => text(g, tx, rowY(lines.length + k) + 1, truncate(note, max, measure, 400, 11), { fill: theme.inkSecondary, "font-size": 11 }));
 		} else {
 			text(g, tx, mid - 7, truncate(lane.title, max, measure, 600, 13), {
 				fill: theme.ink, "font-size": 13, "font-weight": 600, "pointer-events": "none",
@@ -969,6 +972,8 @@ export interface ExportOptions {
 	today?: number;
 	/** Draw the saved plan as dashed outlines (and add it to the legend). */
 	compare?: boolean;
+	/** Hours worked from Pocket Watch (shown when the timeline has Hours worked on). */
+	hours?: Hours | null;
 }
 
 export function renderExportSvg(project: Project, opts: ExportOptions = {}): SVGSVGElement {
@@ -978,14 +983,21 @@ export function renderExportSvg(project: Project, opts: ExportOptions = {}): SVG
 	const labelWidth = opts.labelWidth ?? 230;
 	const margin = 40;
 	const timelineW = totalW - margin * 2 - labelWidth;
-	const probe = computeLayout(project, { pxPerDay: 1, showEmptyLanes: false, measure, print: true });
+	const hours = isOn(project, "hours") ? (opts.hours ?? null) : null;
+	const probe = computeLayout(project, { pxPerDay: 1, showEmptyLanes: false, measure, print: true, hours });
 	const days = probe.viewEnd - probe.viewStart + 1;
-	const layout = computeLayout(project, { pxPerDay: timelineW / days, showEmptyLanes: false, measure, print: true });
+	const layout = computeLayout(project, { pxPerDay: timelineW / days, showEmptyLanes: false, measure, print: true, hours });
 	const compare = !!(opts.compare && project.baseline);
+	// Under each phase's name: the hours worked on it.
+	const laneNotes = new Map<string, string>();
+	for (const ph of project.phases) {
+		const worked = phaseHours(hours, ph.id);
+		if (worked) laneNotes.set(ph.id, `${worked} worked`);
+	}
 	const paint: PaintOptions = {
 		theme, measure, interactive: false, print: true,
 		today: opts.includeToday ? (opts.today ?? null) : null,
-		plan: compare ? project.baseline : null,
+		plan: compare ? project.baseline : null, laneNotes,
 	};
 
 	// Title block, then the chart. No legend: the picture explains itself (see print.ts).

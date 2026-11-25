@@ -7,6 +7,9 @@ import { GanttItem, ITEM_TYPE_LABELS, Project } from "./core/types";
 import { icon } from "./ui/icons";
 import type SimpleGanttPlugin from "./main";
 import { ICON_ID } from "./view";
+import { isOn } from "./core/features";
+import { formatHours, itemHours } from "./core/hours";
+import { onPocketWatchChange, pocketWatchHours } from "./pocketWatch";
 
 export const OVERVIEW_VIEW_TYPE = "simple-gantt-overview";
 
@@ -40,6 +43,7 @@ export class OverviewView extends ItemView {
 		this.registerEvent(this.app.vault.on("modify", (f) => f instanceof TFile && this.plugin.isProject(f) && later()));
 		this.registerEvent(this.app.workspace.on("file-open", () => later()));
 		this.registerEvent(this.app.workspace.on("css-change", () => later()));
+		this.registerEvent(onPocketWatchChange(this.app, () => later()));
 		// Days roll over while Obsidian stays open.
 		this.registerInterval(window.setInterval(later, 30 * 60 * 1000));
 		await this.refresh();
@@ -70,6 +74,8 @@ export class OverviewView extends ItemView {
 		}
 		const today = toDay(todayIso());
 		const palette = themeFromCss(el).palette;
+		// Hours worked, from Pocket Watch.
+		const hours = isOn(project, "hours") ? pocketWatchHours(this.app, file.path, project) : null;
 		const colorOf = (it: GanttItem) => {
 			const ph = project.phases.find((p) => p.id === it.phase);
 			return ph ? palette[ph.color] : "var(--text-faint)";
@@ -95,6 +101,12 @@ export class OverviewView extends ItemView {
 		glance.append(ring(pct));
 		const facts = glance.createDiv({ cls: "sg-ov-facts" });
 		facts.createDiv({ cls: "sg-ov-pct", text: `${pct}% done` });
+		const worked = formatHours(hours?.total);
+		if (worked) {
+			const d = facts.createDiv({ cls: "sg-ov-next sg-ov-worked" });
+			d.append(icon("today", 12));
+			d.createSpan({ text: `${worked} worked` });
+		}
 		const next = nextDeadline(project, today);
 		if (next) {
 			const d = facts.createDiv({ cls: "sg-ov-next" });
@@ -119,7 +131,8 @@ export class OverviewView extends ItemView {
 				mark.setCssProps({ "--sg-ov-color": colorOf(r.item) });
 				const text = row.createSpan({ cls: "sg-ov-text" });
 				text.createSpan({ cls: "sg-ov-name", text: r.item.title });
-				text.createSpan({ cls: "sg-ov-when", text: r.when });
+				const spent = r.item.type === "task" ? itemHours(hours, r.item.id) : "";
+				text.createSpan({ cls: "sg-ov-when", text: spent ? `${r.when} · ${spent} worked` : r.when });
 				if (r.item.type === "task" && r.item.progress) {
 					const bar = text.createSpan({ cls: "sg-ov-bar" });
 					bar.setCssProps({ "--sg-ov-progress": `${r.item.progress}%`, "--sg-ov-color": colorOf(r.item) });

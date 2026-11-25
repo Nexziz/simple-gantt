@@ -10,11 +10,32 @@ import { RIBBON_ICON_SVG, icon } from "../src/ui/icons";
 import { SAMPLE } from "./sample";
 import { App, TFile, WorkspaceLeaf } from "obsidian";
 import { OverviewView } from "../src/overview";
+import type { Hours } from "../src/core/hours";
 
 const params = new URLSearchParams(location.search);
 const mode = params.get("mode") ?? "board";
 const dark = params.get("theme") === "dark";
 const TODAY = "2026-10-26";
+// ?hours=1: hours worked as Pocket Watch would give them, made up from the plan up to today.
+const withHours = params.has("hours");
+function demoHours(project: Project): Hours | null {
+	if (!withHours) return null;
+	const out: Hours = { total: 0, unsorted: 3 * 3600e3, items: {}, phases: {} };
+	project.items.forEach((it, n) => {
+		if (it.type !== "task" || it.buffer || it.start > TODAY) return;
+		const days = Math.min(toDay(it.end ?? it.start), toDay(TODAY)) - toDay(it.start) + 1;
+		const ms = Math.round((days * (25 + ((n * 37) % 40))) / 15) * 15 * 60e3;
+		out.items[it.id] = { ms, days, first: it.start, last: TODAY };
+		if (it.phase) {
+			const ph = (out.phases[it.phase] ??= { ms: 0, days: 0, first: null, last: null, own: 0 });
+			ph.ms += ms;
+			ph.days += days;
+		}
+		out.total += ms;
+	});
+	out.total += out.unsorted;
+	return out;
+}
 document.body.classList.add(dark ? "theme-dark" : "theme-light");
 
 if (mode === "print") {
@@ -28,12 +49,12 @@ if (mode === "print") {
 			for (let i = 0; i < 6; i++) project.items.push({ id: `${id}${i}`, type: "task", title: `${ph} part ${i + 1}`, phase: id, start: `2026-${String(9 + (i % 4)).padStart(2, "0")}-0${1 + i}`, end: `2027-0${1 + (i % 6)}-1${i}` });
 		}
 	}
-	for (const svg of renderPrintPages(project, { today: toDay(TODAY), compare: params.has("compare") })) {
+	for (const svg of renderPrintPages(project, { today: toDay(TODAY), compare: params.has("compare"), hours: demoHours(project) })) {
 		svg.classList.add("print-page");
 		document.body.appendChild(svg);
 	}
 } else if (mode === "export") {
-	const svg = renderExportSvg(SAMPLE, { theme: dark ? DARK_THEME : PRINT_THEME, includeToday: true, today: toDay(TODAY), compare: params.has("compare") });
+	const svg = renderExportSvg(SAMPLE, { theme: dark ? DARK_THEME : PRINT_THEME, includeToday: true, today: toDay(TODAY), compare: params.has("compare"), hours: demoHours(SAMPLE) });
 	svg.id = "shot";
 	document.body.appendChild(svg);
 } else {
@@ -82,6 +103,7 @@ if (mode === "print") {
 		},
 		openNote: (n) => console.log("open note", n),
 		suggestNotes: (q) => ["Chapters/Chapter 2 - Literature", "Chapters/Chapter 3 - Methods", "Ethics/Application form", "Meetings/Supervisor"].filter((n) => n.toLowerCase().includes(q.toLowerCase())),
+		hours: (p) => demoHours(p),
 	});
 	board.setProject(current ? projects[current] : null, current);
 	(window as any).board = board;
@@ -106,7 +128,9 @@ async function showSidebar(board: GanttBoard) {
 		activateView: async (_p: string, id?: string) => id && board.focusItem(id),
 		newProject: async () => {},
 	};
-	const view = new OverviewView(new WorkspaceLeaf(new App()), plugin as never);
+	const mockApp = new App();
+	if (withHours) (mockApp as any).plugins = { plugins: { "pocket-watch": { api: { timelineHours: () => demoHours(SAMPLE) } } } };
+	const view = new OverviewView(new WorkspaceLeaf(mockApp), plugin as never);
 	view.contentEl.classList.add("mock-side-content");
 	side.appendChild(view.contentEl);
 	await view.onOpen();

@@ -4,7 +4,7 @@ import type { Project } from "./types";
  * Optional parts of the board. Each project can switch them off (stored as `off: [...]` in the note).
  * Switching off only hides things; the data stays in the note and returns when switched back on.
  */
-export type Feature = "locations" | "events" | "journal" | "planb" | "links" | "buffers" | "progress" | "nudges" | "celebrate";
+export type Feature = "locations" | "events" | "journal" | "planb" | "links" | "buffers" | "progress" | "nudges" | "celebrate" | "hours";
 
 export const FEATURES: { key: Feature; label: string; desc: string; icon: string }[] = [
 	{ key: "links", label: "Links", desc: "Arrows between items; moving one pushes what comes after", icon: "branch" },
@@ -16,6 +16,7 @@ export const FEATURES: { key: Feature; label: string; desc: string; icon: string
 	{ key: "planb", label: "Plan B", desc: "Backup plans with a decision date", icon: "branch" },
 	{ key: "journal", label: "Journal", desc: "Notes, moods and check-in reminders", icon: "book" },
 	{ key: "celebrate", label: "Celebrations", desc: "Confetti when you tick something off", icon: "party" },
+	{ key: "hours", label: "Hours worked", desc: "Your time from Pocket Watch after each task and under each phase, when a Pocket Watch project follows this timeline", icon: "today" },
 ];
 
 export const ALL_FEATURES: Feature[] = FEATURES.map((f) => f.key);

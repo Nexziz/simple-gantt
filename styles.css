@@ -1309,6 +1309,7 @@
 .sg-overview .sg-ov-pct { font-weight: 600; color: var(--text-normal); }
 .sg-overview .sg-ov-next { display: flex; align-items: center; gap: 5px; font-size: var(--font-ui-small, 13px); color: var(--text-muted); }
 .sg-overview .sg-ov-next .sg-icon { flex: none; color: #d03b3b; }
+.sg-overview .sg-ov-worked .sg-icon { color: var(--text-faint); }
 .sg-overview .sg-ov-next span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sg-overview .sg-ov-open { display: inline-flex; align-items: center; justify-content: center; gap: 7px; width: 100%; }
 .sg-overview .sg-ov-sec { display: flex; flex-direction: column; gap: 2px; }

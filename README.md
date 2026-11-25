@@ -85,7 +85,7 @@ The overview panel shows your next deadline, what's on now and what's coming up.
 ![The overview panel in the sidebar](https://raw.githubusercontent.com/Nexziz/simple-gantt/main/docs/gifs/sidebar.gif)
 
 ### Print it, your way
-**Export → Print / PDF…** opens a print window with a live preview. Pick A4, A3 or Letter, landscape or portrait, how much room there is between the rows and how big the text is, and what to show: **phase lengths** under each phase's name (its working time, without vacations and buffers), a **milestone table** (every milestone with its date, earliest first), a **vacations and buffers table** (each one with its pattern, dates and length), task dates, a Today line, arrows (also the long ones across phases, as on the board), buffer and vacation names with their dates (above the bar, below it, or wherever there's room), Plan B names, week dates, the subtitle, and a countdown to the next deadline. By default the page only says things that stay true, so it still reads right weeks later: lengths and dates, not "in 4 weeks" (a countdown can be switched on). Names never lose their dates to make room: when two would collide, one moves under the bar. Time is counted one way throughout the page: in **weeks** ("in 20 weeks", "2 weeks 3 days"), in days, or mixed (weeks, then months). Your choices are saved with the timeline. **Save PDF** writes a print-ready PDF and opens it; print it at 100%.
+**Export → Print / PDF…** opens a print window with a live preview. Pick A4, A3 or Letter, landscape or portrait, how much room there is between the rows and how big the text is, and what to show: **phase lengths** under each phase's name (its working time, without vacations and buffers), a **milestone table** (every milestone with its date, earliest first), a **vacations and buffers table** (each one with its pattern, dates and length), task dates, the **hours worked** on each task and phase (with [Pocket Watch](https://github.com/Nexziz/simple-gantt#hours-worked-from-pocket-watch)), a Today line, arrows (also the long ones across phases, as on the board), buffer and vacation names with their dates (above the bar, below it, or wherever there's room), Plan B names, week dates, the subtitle, and a countdown to the next deadline. By default the page only says things that stay true, so it still reads right weeks later: lengths and dates, not "in 4 weeks" (a countdown can be switched on). Names never lose their dates to make room: when two would collide, one moves under the bar. Time is counted one way throughout the page: in **weeks** ("in 20 weeks", "2 weeks 3 days"), in days, or mixed (weeks, then months). Your choices are saved with the timeline. **Save PDF** writes a print-ready PDF and opens it; print it at 100%.
 
 The page itself is kept clean: deadlines in red in one row at the top, each with a line through the whole chart; milestones as bold diamonds with their dates; no legend, because the picture explains itself. No label ever runs off the page.
 
@@ -102,6 +102,13 @@ The page itself is kept clean: deadlines in red in one row at the top, each with
 <kbd>C</kbd> highlights the chain with the least slack before a deadline. <kbd>B</kbd> compares today's chart with the plan you saved, showing where everything was planned and how far it moved.
 
 ![Critical path and saved plan](https://raw.githubusercontent.com/Nexziz/simple-gantt/main/docs/gifs/insights.gif)
+
+### Hours worked, from Pocket Watch
+With [Pocket Watch](https://github.com/Nexziz/pocket-watch) installed, edit a project there and choose this timeline: your time on the project is shared out among the phases and tasks, and Simple Gantt shows it. The hours follow each task's name, each phase shows its total under its name, and the overview panel shows the hours on the whole timeline and on each task in it. On paper, a task's hours come after its dates, and a phase's on their own line under its length. They update as you work.
+
+Don't want them somewhere? Switch **Hours worked** off under the timeline's **Features**, or only for paper in **Print / PDF**. Simple Gantt only reads the hours; Pocket Watch keeps them, and nothing is added to your note.
+
+![Hours worked from Pocket Watch, on the board and in the overview panel](https://raw.githubusercontent.com/Nexziz/simple-gantt/main/docs/images/26-hours-worked.png)
 
 ## Features
 
@@ -159,7 +166,7 @@ The page itself is kept clean: deadlines in red in one row at the top, each with
 <details open>
 <summary><b>Share &amp; export</b></summary>
 
-- **Print / PDF** with a live preview: A4, A3 or Letter, landscape or portrait, tight to roomy row spacing, three text sizes, where buffer names go, time in weeks, days or mixed, and switches for phase lengths, the milestone table, the vacations and buffers table, task dates, Today line, arrows (and the long ones across phases), buffer names and their dates, week dates, subtitle and countdown. Saved per timeline. Long plans continue on more pages, each repeating the dates and deadlines.
+- **Print / PDF** with a live preview: A4, A3 or Letter, landscape or portrait, tight to roomy row spacing, three text sizes, where buffer names go, time in weeks, days or mixed, and switches for phase lengths, the milestone table, the vacations and buffers table, task dates, hours worked (from Pocket Watch), Today line, arrows (and the long ones across phases), buffer names and their dates, week dates, subtitle and countdown. Saved per timeline. Long plans continue on more pages, each repeating the dates and deadlines.
 - **PNG or SVG** in the same clean, white style. You can include the saved plan for a "planned vs. actual" figure.
 - **Markdown table or CSV** of the whole plan, for an appendix or a spreadsheet.
 - **Reading view:** the note's block renders as a chart preview, and you can copy it into any other note.
@@ -169,7 +176,7 @@ The page itself is kept clean: deadlines in red in one row at the top, each with
 <summary><b>Make it yours</b></summary>
 
 - **Put Simple Gantt where you like:** open the **overview panel** from Settings → Simple Gantt (left or right sidebar) or with the command *Show overview in the sidebar*, then drag its icon onto any tab group. You can hide the ribbon button there too.
-- **Use only what you need:** under project settings → **Features**, switch Links, Progress, Reminders, Key dates, Locations, Buffer time, Plan B, Journal and Celebrations on or off, or pick **Essentials** or **Everything**. Switching something off only hides it; your data stays.
+- **Use only what you need:** under project settings → **Features**, switch Links, Progress, Reminders, Key dates, Locations, Buffer time, Plan B, Journal, Celebrations and Hours worked on or off, or pick **Essentials** or **Everything**. Switching something off only hides it; your data stays.
 - **Your date format:** Settings → Simple Gantt → **Date format**: day first (24/11/2026, the default), month first (11/24/2026) or year first (2026-11-24). Date fields show and read dates that way (with a calendar button to pick one), and so does the quick-add bar for dates like 3/7/2027.
 - **Day names:** zoom in to the month view and each day shows its weekday letter (M T W T F S S) above its date.
 - **Comfortable or Compact** spacing.

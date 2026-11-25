@@ -1,7 +1,8 @@
 /* End-to-end test of the real plugin code against the in-memory Obsidian mock. Runs in Chromium. */
 import { App, notices } from "obsidian";
 import SimpleGanttPlugin from "../src/main";
-import { isOn } from "../src/core/features";
+import { isOn, setFeature } from "../src/core/features";
+import { renderExportSvg } from "../src/core/render";
 import { renderPrintPages } from "../src/core/print";
 import { printSettingsOf } from "../src/core/printSettings";
 import { normalizeProject } from "../src/core/serialize";
@@ -722,6 +723,66 @@ function check(cond: unknown, msg: string) {
 		await sleep(300);
 		check((app as any).trashed.includes(doomed) && !app.vault.getAbstractFileByPath(doomed), "the note goes to the trash");
 		check(view().currentPath() === keep && !(window as any).plugin?.settings?.projects?.includes(doomed), "…and the other timeline opens");
+
+		// ── Hours worked, from Pocket Watch ──
+		{
+			const p = board.getProject();
+			const task = p.items.find((i: any) => i.type === "task" && !i.buffer && !i.dropped && i.phase);
+			let asked: any = null;
+			const worked = { total: (3 * 60 + 15) * 60e3, unsorted: 0, projects: [{ id: "x", name: "Thesis", color: 1 }],
+				items: { [task.id]: { ms: 90 * 60e3, days: 3, first: "2026-10-01", last: "2026-10-03" } },
+				phases: { [task.phase]: { ms: 2 * 3600e3, days: 4, first: "2026-09-30", last: "2026-10-03", own: 30 * 60e3 } } };
+			const pocketWatch = { api: { version: 1, timelineHours: (path: string, raw: any) => ((asked = { path, raw }), worked) } };
+			const texts = (sel: string) => [...document.querySelectorAll(sel)].map((t) => t.textContent ?? "");
+			const noteOf = () => board["layout"].placed.find((x: any) => x.item.id === task.id)?.note ?? "";
+			const phaseSub = () => board["layout"].lanes.find((l: any) => l.key === task.phase)?.subtitle ?? "";
+			check(!noteOf().includes("1h") && !phaseSub().includes("2h"), "without Pocket Watch, no hours");
+			(app as any).plugins = { plugins: { "pocket-watch": pocketWatch } };
+			app.workspace.trigger("pocket-watch:time-changed");
+			await sleep(50);
+			check(noteOf() === "1h 30m" && texts(".sg-body svg text").some((t) => t.includes("1h 30m")), `a task's hours follow its name (${noteOf()})`);
+			check(phaseSub().startsWith("2h worked · ") && texts(".sg-labels-svg text").some((t) => t.startsWith("2h worked")), `…and a phase's under its name (${phaseSub()})`);
+			check(asked?.path === view().currentPath() && asked.raw?.items?.some((i: any) => i.id === task.id), "Pocket Watch is asked about this timeline, as it is on the board");
+			const onPaper = (set?: any) => board["printPages"](set).map((svg: SVGSVGElement) => svg.textContent).join(" ");
+			check(onPaper().includes("2h worked") && onPaper().includes("1h 30m"), "on paper: after each task's dates and under each phase");
+			check(!onPaper({ ...printSettingsOf(p.print), hours: false }).includes("1h 30m"), "…unless switched off for paper");
+			board.openPrintDialog();
+			const sw = document.querySelector('[data-print="hours"]') as HTMLInputElement;
+			check(sw?.checked, "the print window has an Hours worked switch, on");
+			sw.checked = false;
+			sw.dispatchEvent(new Event("change"));
+			await sleep(100);
+			check(board.getProject().print?.hours === false && !texts(".sg-print-pages svg text").some((t) => t.includes("1h 30m")), "switching it off takes them off the preview, and is saved with the timeline");
+			sw.checked = true;
+			sw.dispatchEvent(new Event("change"));
+			check(board.getProject().print?.hours === undefined, "…and on again leaves the default");
+			board.closePrintDialog();
+			check(renderExportSvg(p, { hours: worked }).textContent?.includes("2h worked"), "the exported image shows them too");
+			// The overview panel: the total, and the time on each task in it.
+			const ovLeaf = app.workspace.leaves.find((l: any) => l.view?.getViewType() === "simple-gantt-overview");
+			await ovLeaf.view.refresh();
+			check(document.querySelector(".sg-ov-worked")?.textContent === "3h 15m worked", `the overview shows the hours worked (${document.querySelector(".sg-ov-worked")?.textContent})`);
+			// Hours worked switched off for this timeline: gone from the board, paper, image and overview.
+			setFeature(p, "hours", false);
+			board["commit"]();
+			await sleep(800);
+			await ovLeaf.view.refresh();
+			check(!noteOf() && !phaseSub().includes("2h"), "switching Hours worked off hides them on the board");
+			check(!onPaper().includes("worked") && !renderExportSvg(p, { hours: worked }).textContent?.includes("worked"), "…on paper and in the image");
+			check(!document.querySelector(".sg-ov-worked"), "…and in the overview");
+			setFeature(p, "hours", true);
+			board["commit"]();
+			check(noteOf() === "1h 30m", "…and on again brings them back");
+			// Pocket Watch answering nonsense, or failing, shows nothing rather than breaking the board.
+			pocketWatch.api.timelineHours = (() => { throw new Error("boom"); }) as any;
+			board.refreshHours();
+			check(!noteOf() && document.querySelector(".sg-body svg"), "a failing Pocket Watch shows no hours, and the board still draws");
+			pocketWatch.api.timelineHours = (() => ({ total: "lots", items: 7 })) as any;
+			board.refreshHours();
+			check(!noteOf(), "…nor does an answer it can't read");
+			delete (app as any).plugins;
+			board.refreshHours();
+		}
 
 		log.push(`notices: ${JSON.stringify(notices)}`);
 		(window as any).__note = await app.vault.read(file);

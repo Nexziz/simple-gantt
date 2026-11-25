@@ -2,6 +2,7 @@ import { DateOrder, MONTHS_LONG, datePlaceholder, formatDay, formatDuration, for
 import { PROMPTS, REVIEW_PROMPTS, prompt, slotStates } from "../core/journal";
 import { Nudge, computeNudges, nextDeadline, overallProgress, rippleShift } from "../core/nudges";
 import { FEATURES, Feature, PRESETS, isOn, setFeature } from "../core/features";
+import { Hours } from "../core/hours";
 import { Slack, addLink, computeSlack, enforceLinks, predecessorsOf, pruneLinks, removeLink, successorsOf, wouldCycle } from "../core/links";
 import { baselineSummary, driftOf, saveBaseline } from "../core/baseline";
 import { toCsv, toMarkdownTable } from "../core/table";
@@ -47,6 +48,8 @@ export interface BoardHost {
 	dateOrder?(): DateOrder;
 	/** Move the open timeline's note to the trash and open another one. */
 	deleteProject?(): Promise<void> | void;
+	/** Hours worked on this timeline's tasks and phases, from Pocket Watch; null when no Pocket Watch project follows it. */
+	hours?(project: Project): Hours | null;
 }
 
 type Zoom = "year" | "quarter" | "month" | "custom";
@@ -155,6 +158,9 @@ export class GanttBoard {
 	private showCritical = false;
 	/** Show where items sat in the saved plan. */
 	private comparePlan = false;
+	/** Hours worked from Pocket Watch, asked for again after a change (see worked()). */
+	private hoursCache: Hours | null = null;
+	private hoursStale = true;
 	/** Slack per item, recomputed on every render. */
 	private slack = new Map<string, Slack>();
 	/** The last plain click on an item, to spot a double-click (the board re-renders between clicks). */
@@ -253,6 +259,7 @@ export class GanttBoard {
 			this.closePanel();
 		} else if (this.panelMode) this.refreshPanel();
 		this.root.classList.toggle("is-empty", !project);
+		this.hoursStale = true;
 		this.render();
 	}
 
@@ -263,6 +270,25 @@ export class GanttBoard {
 	/** Redraw the open panel, e.g. after the date format setting changed. */
 	refreshDates() {
 		if (this.panelMode) this.refreshPanel();
+	}
+
+	/** Pocket Watch's time changed: show the new hours. */
+	refreshHours() {
+		this.hoursStale = true;
+		if (this.project && this.on("hours")) this.render();
+	}
+
+	/** Hours worked on this timeline, from Pocket Watch, when Hours worked is on and a Pocket Watch project follows it. */
+	private worked(): Hours | null {
+		if (this.hoursStale) {
+			this.hoursStale = false;
+			try {
+				this.hoursCache = this.project && this.on("hours") ? this.host.hours?.(this.project) ?? null : null;
+			} catch {
+				this.hoursCache = null;
+			}
+		}
+		return this.hoursCache;
 	}
 
 	refreshTheme() {
@@ -449,7 +475,7 @@ export class GanttBoard {
 		}
 		const labelW = this.labelWidth();
 		const today = toDay(this.host.today());
-		const layout = computeLayout(p, { pxPerDay: this.ppd, showEmptyLanes: true, showJournal: true, today, measure: this.measure });
+		const layout = computeLayout(p, { pxPerDay: this.ppd, showEmptyLanes: true, showJournal: true, today, measure: this.measure, hours: this.worked() });
 		this.layout = layout;
 		if (!this.drag?.moved) {
 			this.renderStats();
@@ -560,6 +586,8 @@ export class GanttBoard {
 		pruneLinks(this.project);
 		const pushed = this.on("links") ? enforceLinks(this.project) : [];
 		this.host.save(this.project);
+		// The plan decides where some of the time goes (the task planned for a day), so ask again.
+		this.hoursStale = true;
 		this.render();
 		if (pushed.length)
 			this.host.notify(`Moved ${pushed.length} linked item${pushed.length === 1 ? "" : "s"} later to keep the order`);
@@ -3360,7 +3388,7 @@ export class GanttBoard {
 	 */
 	/** The pages as they'll print, with this timeline's print settings (or the ones given). */
 	private printPages(settings?: PrintSettings): SVGSVGElement[] {
-		return renderPrintPages(this.project!, { today: toDay(this.host.today()), compare: this.comparePlan, settings });
+		return renderPrintPages(this.project!, { today: toDay(this.host.today()), compare: this.comparePlan, settings, hours: this.worked() });
 	}
 
 	/** A print-ready PDF (one page per sheet), saved next to the note and opened, ready to print at 100%. */
@@ -3481,6 +3509,7 @@ export class GanttBoard {
 		toggle("milestoneCountdown", "How far off each one is", "Counted from the day you print, so it goes out of date", "milestoneTable");
 		toggle("bufferTable", "Vacations and buffers table", "Each one under the chart with its dates, length and pattern");
 		toggle("taskDates", "Task dates", "Each task's dates after its name");
+		if (this.worked()) toggle("hours", "Hours worked", "From Pocket Watch: after each task's name and under each phase's");
 		toggle("today", "Today line", "Where the plan stands on the day you print");
 		toggle("arrows", "Arrows", "Between steps that follow each other");
 		toggle("longArrows", "Arrows across phases", "Also the long ones that run down through other phases, as on the board", "arrows");
@@ -3562,7 +3591,7 @@ export class GanttBoard {
 
 	async exportAs(kind: "png" | "svg") {
 		if (!this.project) return;
-		const svg = renderExportSvg(this.project, { today: toDay(this.host.today()), compare: this.comparePlan });
+		const svg = renderExportSvg(this.project, { today: toDay(this.host.today()), compare: this.comparePlan, hours: this.worked() });
 		const base = this.exportBase();
 		try {
 			if (kind === "svg") await this.host.exportFile(`${base}.svg`, svgToString(svg));

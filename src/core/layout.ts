@@ -1,6 +1,7 @@
 import { formatDay, formatMonthSpan, monthEnd, monthStart, toDay } from "./dates";
 import { SlotState, slotStates } from "./journal";
 import { Feature, isOn } from "./features";
+import { Hours, itemHours, phaseHours } from "./hours";
 import { ColorName, GanttItem, Mood, Phase, Project, isDone } from "./types";
 
 /** Geometry, in CSS pixels. Comfortable is the default; Compact fits more on screen. */
@@ -228,6 +229,8 @@ export interface LayoutOptions {
 	captionPlace?: "auto" | "above" | "below";
 	/** Show the week row in the date header; by default it shows when there's room. */
 	weeks?: boolean;
+	/** Hours worked from Pocket Watch: after each task's name, and under each phase's (when Hours worked is on). */
+	hours?: Hours | null;
 }
 
 export type Measure = LayoutOptions["measure"];
@@ -369,8 +372,12 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 			let label = journal || (flat && mark.kind !== "summary") ? "" : (done ? "✓ " : "") + (item.title || "Untitled") + (dated ? ` · ${formatDay(s, false)}` : "");
 			const badge = item.type === "milestone" && !!label && !print;
 			const weight = item.type === "deadline" || item.type === "location" || badge ? 600 : 500;
-			// On paper a task's dates follow its name in small grey text (there's no hovering on paper).
-			let note = print && opts.taskDates !== false && label && mark.kind === "item" && item.type === "task" && !item.buffer ? shortRange(s, e) : "";
+			// On paper a task's dates follow its name in small grey text (there's no hovering on paper), then the
+			// hours worked on it, from Pocket Watch, which also show on screen.
+			const work = !!label && mark.kind === "item" && item.type === "task" && !item.buffer;
+			const dates = print && opts.taskDates !== false && work ? shortRange(s, e) : "";
+			const worked = work && on("hours") ? itemHours(opts.hours, item.id) : "";
+			let note = [dates, worked].filter(Boolean).join(" · ");
 			// Milestone labels sit in a tinted badge: reserve its padding.
 			const widthOf = (text: string, withNote: string) => text
 				? opts.measure(text, weight, g.fontSize) + (badge ? MILESTONE_BADGE_PAD * 2 : 0) + (withNote ? NOTE_GAP + opts.measure(withNote, 400, g.fontSize - 1.5) : 0)
@@ -581,7 +588,11 @@ export function computeLayout(project: Project, opts: LayoutOptions): Layout {
 				group.kind === "keydates" ? (print && group.marks.every((m) => m.kind === "item" && m.item.type === "deadline") ? "Deadlines" : "Key dates") :
 				group.kind === "journal" ? "Journal" :
 				group.kind === "unassigned" ? "Other" : group.phase!.name,
-			subtitle: group.collapsed ? `Folded · ${group.items.length} item${group.items.length === 1 ? "" : "s"}` : laneSubtitle(group.kind, group.items, project),
+			// The hours worked come first, so they stay when a long line is shortened.
+			subtitle: [
+				group.kind === "phase" && on("hours") && phaseHours(opts.hours, group.key) ? `${phaseHours(opts.hours, group.key)} worked` : "",
+				group.collapsed ? `Folded · ${group.items.length} item${group.items.length === 1 ? "" : "s"}` : laneSubtitle(group.kind, group.items, project),
+			].filter(Boolean).join(" · "),
 			collapsed: group.collapsed,
 			color: group.phase?.color,
 			y,

@@ -5,6 +5,7 @@ import { todayIso } from "./core/dates";
 import type { Project } from "./core/types";
 import { GanttBoard } from "./ui/board";
 import type SimpleGanttPlugin from "./main";
+import { onPocketWatchChange, pocketWatchHours } from "./pocketWatch";
 
 export const VIEW_TYPE = "simple-gantt-view";
 export const ICON_ID = "simple-gantt";
@@ -47,9 +48,12 @@ export class GanttView extends ItemView {
 			suggestNotes: (q) => this.suggestNotes(q),
 			dateOrder: () => this.plugin.settings.dateOrder,
 			deleteProject: () => this.deleteProject(),
+			hours: (p) => pocketWatchHours(this.app, this.file?.path, p),
 		});
 
 		this.registerEvent(this.app.workspace.on("css-change", () => this.board?.refreshTheme()));
+		// Hours worked follow your time in Pocket Watch.
+		this.registerEvent(onPocketWatchChange(this.app, () => this.board?.refreshHours()));
 		this.registerEvent(this.app.vault.on("modify", (f) => f === this.file && this.reloadFromDisk()));
 		this.registerEvent(this.app.vault.on("rename", (f) => {
 			if (f === this.file) {

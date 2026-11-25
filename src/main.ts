@@ -8,6 +8,7 @@ import { DEFAULT_SETTINGS, SimpleGanttSettingTab, SimpleGanttSettings } from "./
 import { RIBBON_ICON_SVG, icon } from "./ui/icons";
 import { GanttView, ICON_ID, VIEW_TYPE } from "./view";
 import { OVERVIEW_VIEW_TYPE, OverviewView } from "./overview";
+import { pocketWatchHours } from "./pocketWatch";
 
 export default class SimpleGanttPlugin extends Plugin {
 	settings!: SimpleGanttSettings;
@@ -53,7 +54,8 @@ export default class SimpleGanttPlugin extends Plugin {
 				wrap.createDiv({ cls: "sg-inline-error", text: `Simple Gantt: the data block could not be read (${(e as Error).message}).` });
 				return;
 			}
-			wrap.appendChild(renderExportSvg(project, { width: 1600, today: toDay(todayIso()) }));
+			const hours = pocketWatchHours(this.app, ctx.sourcePath, project);
+			wrap.appendChild(renderExportSvg(project, { width: 1600, today: toDay(todayIso()), hours }));
 			const btn = wrap.createEl("button", { cls: "sg-btn sg-inline-open" });
 			btn.append(icon("external", 14), createSpan({ text: "Open in Simple Gantt" }));
 			btn.addEventListener("click", () => void this.activateView(ctx.sourcePath));
